@@ -22,6 +22,7 @@
 #include "imu.h"
 #include "stats.h"
 #include "sbc.h"
+#include "audio.h"
 
 #define SONY_VID     0x054C
 #define DS4_V1_PID   0x05C4
@@ -171,6 +172,7 @@ static void hide_pad(const char *path)
 static CRITICAL_SECTION out_lock;
 static unsigned char led[3];
 static int brightness = 100;
+static int volume = 64;                 /* speaker and headphones, 0-100; guarded by out_lock */
 static unsigned char report_interval;   /* from config.toml; 0 = pad's default */
 static int battery = -1, cable;
 
@@ -178,10 +180,10 @@ static void update_title(void)
 {
     WCHAR title[128];
     if (battery < 0)
-        swprintf(title, ARRAYSIZE(title), L"ds4bridge - battery ? - light bar %d%%", brightness);
+        swprintf(title, ARRAYSIZE(title), L"ds4bridge - battery ? - light bar %d%% - volume %d%%", brightness, volume);
     else
-        swprintf(title, ARRAYSIZE(title), L"ds4bridge - battery %d%%%ls - light bar %d%%",
-                 battery, cable ? (battery == 100 ? L" (full)" : L" (charging)") : L"", brightness);
+        swprintf(title, ARRAYSIZE(title), L"ds4bridge - battery %d%%%ls - light bar %d%% - volume %d%%",
+                 battery, cable ? (battery == 100 ? L" (full)" : L" (charging)") : L"", brightness, volume);
     SetConsoleTitleW(title);
 }
 
@@ -227,28 +229,58 @@ static void send_to_pad(unsigned char *usb)
     LeaveCriticalSection(&out_lock);
 }
 
-/* Speaker test tone ('t'): 1 kHz sine streamed as 0x17 audio reports, the first step towards Bluetooth audio. */
-static volatile LONG tone_on;
+/* Speaker: 16 ms chunks of 32 kHz stereo, each sent as one 0x17 report of 4 SBC frames. */
+#define AUDIO_CHUNK (4 * SBC_FRAME_SAMPLES)
+static volatile LONG tone_on;   /* 't': 1 kHz test tone, replaces captured audio while on */
+static char audio_device[128];  /* from config.toml; "" = no capture */
+static volatile LONG headphones;    /* plugged into the pad: audio goes to the jack instead of the speaker */
+
+/* Volume: headset L/R, mic, speaker (flags 0x10-0x80) at USB[19..22]; USB[23] = 0x85 as in the Habr capture.
+ * ponytail: the pad's real range is unknown; 0-100 is sent as is (the Habr capture calls it a percentage). */
+static void set_speaker_volume(void)
+{
+    unsigned char vol[DS4_USB_OUTPUT_SIZE] = { 0x05, 0xF0, 0x04 };
+    EnterCriticalSection(&out_lock);
+    vol[19] = vol[20] = vol[22] = (unsigned char)volume;
+    LeaveCriticalSection(&out_lock);
+    vol[23] = 0x85;
+    send_to_pad(vol);
+}
+
+static void set_volume(int percent)
+{
+    EnterCriticalSection(&out_lock);
+    volume = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+    LeaveCriticalSection(&out_lock);
+    set_speaker_volume();
+    update_title();
+}
+
+/* Called from the tone and capture threads; out_lock also guards the encoder and frame counter. */
+static void send_audio(const short *pcm)
+{
+    static struct sbc_enc enc;
+    static unsigned short frame;
+    unsigned char sbc[DS4_BT_AUDIO_SBC], bt[DS4_BT_AUDIO_SIZE];
+    EnterCriticalSection(&out_lock);
+    for (int f = 0; f < 4; f++)
+        sbc_encode(&enc, pcm + f * 2 * SBC_FRAME_SAMPLES, sbc + f * SBC_FRAME_SIZE);
+    ds4_bt_audio_report(frame, headphones ? DS4_AUDIO_HEADSET : DS4_AUDIO_SPEAKER, sbc, bt);
+    frame += 4;
+    write_pad(bt, sizeof bt);
+    LeaveCriticalSection(&out_lock);
+}
 
 static DWORD WINAPI tone_thread(LPVOID unused)
 {
     (void)unused;
-    struct sbc_enc enc = { 0 };
-    short pcm[2 * SBC_FRAME_SAMPLES];
-    unsigned char sbc[DS4_BT_AUDIO_SBC], bt[DS4_BT_AUDIO_SIZE];
-    unsigned short frame = 0;
+    short pcm[2 * AUDIO_CHUNK];
     int n = 0;
 
     for (;;) {
         while (!tone_on)
             Sleep(50);
-        /* Volume: headset L/R, mic, speaker (flags 0x10-0x80) at USB[19..22]; USB[23] = 0x85 as in the Habr capture. */
-        unsigned char vol[DS4_USB_OUTPUT_SIZE] = { 0x05, 0xF0, 0x04 };
-        vol[19] = vol[20] = 0x43;
-        vol[22] = 0x40;
-        vol[23] = 0x85;
-        send_to_pad(vol);
-
+        set_speaker_volume();
         uint64_t start = now_us(), queued_us = 0;
         while (tone_on) {
             /* Stay at most 32 ms ahead of real time; Sleep's default 15.6 ms granularity fits in that. */
@@ -256,19 +288,27 @@ static DWORD WINAPI tone_thread(LPVOID unused)
                 Sleep(4);
                 continue;
             }
-            for (int f = 0; f < 4; f++) {
-                for (int i = 0; i < SBC_FRAME_SAMPLES; i++, n = (n + 1) % 32)  /* 32 samples = one 1 kHz period */
-                    pcm[2 * i] = pcm[2 * i + 1] = (short)(8000 * sin(6.283185307179586 * n / 32));
-                sbc_encode(&enc, pcm, sbc + f * SBC_FRAME_SIZE);
-            }
-            ds4_bt_audio_report(frame, sbc, bt);
-            frame += 4;
+            for (int i = 0; i < AUDIO_CHUNK; i++, n = (n + 1) % 32)     /* 32 samples = one 1 kHz period */
+                pcm[2 * i] = pcm[2 * i + 1] = (short)(8000 * sin(6.283185307179586 * n / 32));
+            send_audio(pcm);
             queued_us += 16000;
-            EnterCriticalSection(&out_lock);
-            write_pad(bt, sizeof bt);
-            LeaveCriticalSection(&out_lock);
         }
     }
+}
+
+/* Captured audio arrives in real time, so it needs no pacing of its own. */
+static void captured(const short *pcm)
+{
+    if (!tone_on)
+        send_audio(pcm);
+}
+
+static DWORD WINAPI capture_thread(LPVOID unused)
+{
+    (void)unused;
+    set_speaker_volume();
+    audio_capture(audio_device, AUDIO_CHUNK, captured);
+    return 0;
 }
 
 /* Starts a new statistics window; prints the finished one if stats are on. */
@@ -316,6 +356,7 @@ static DWORD WINAPI output_thread(LPVOID unused)
         if (out.Buffer[0] != 0x05)
             continue;
         memcpy(usb, out.Buffer, sizeof usb);
+        usb[1] &= 0x0F;     /* the bridge owns the volumes: a game's zeros would mute the speaker */
         send_to_pad(usb);
     }
 }
@@ -338,6 +379,10 @@ static DWORD WINAPI keyboard_thread(LPVOID unused)
             set_brightness(brightness - 10);
         else if (key == 's' || key == 'S')
             printf("Stats %s.\n", InterlockedXor(&show_stats, 1) ? "off" : "on");
+        else if (key == ']' || key == '}')
+            set_volume(volume + 10);
+        else if (key == '[' || key == '{')
+            set_volume(volume - 10);
         else if (key == 't' || key == 'T')
             printf("Test tone %s.\n", InterlockedXor(&tone_on, 1) ? "off" : "on");
     }
@@ -371,10 +416,12 @@ static void load_config(struct bridge_config *cfg)
 
 int main(int argc, char **argv)
 {
-    struct bridge_config cfg = { 100, { 0x00, 0x00, 0x40 }, 0 };  /* SDL's player-1 blue */
+    struct bridge_config cfg = { 100, { 0x00, 0x00, 0x40 }, 0, 64, "" };  /* SDL's player-1 blue */
     load_config(&cfg);
     memcpy(led, cfg.color, sizeof led);
     report_interval = (unsigned char)cfg.report_interval_ms;      /* sent with the first light bar report */
+    strcpy(audio_device, cfg.audio_device);
+    volume = cfg.volume;
     int start_brightness = cfg.brightness;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--brightness") && i + 1 < argc)
@@ -420,7 +467,9 @@ int main(int argc, char **argv)
     CreateThread(NULL, 0, output_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, keyboard_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, tone_thread, NULL, 0, NULL);
-    printf("Bridging. +/- changes light bar brightness, s toggles link stats, t plays a speaker test tone;"
+    if (audio_device[0])
+        CreateThread(NULL, 0, capture_thread, NULL, 0, NULL);
+    printf("Bridging. +/- changes light bar brightness, [/] the volume, s toggles link stats, t plays a test tone;"
            " battery is in the window title.\n"
            "Ctrl+C to stop.\n");
 
@@ -478,6 +527,10 @@ int main(int argc, char **argv)
             battery = pct;
             cable = c;
             update_title();
+        }
+        if (in[0] == 0x11 && ds4_headphones(usb) != headphones) {
+            headphones = ds4_headphones(usb);
+            printf("Headphones %s: audio to the %s.\n", headphones ? "plugged in" : "unplugged", headphones ? "jack" : "speaker");
         }
     }
 }

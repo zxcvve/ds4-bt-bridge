@@ -75,8 +75,22 @@ int config_parse(const char *text, struct bridge_config *cfg, const char **err)
                 cfg->report_interval_ms = 1;
             else
                 return *err = "report_rate must be 250, 500 or 1000", no;
+        } else if (!strcmp(key, "volume")) {
+            char *end;
+            long v = strtol(val, &end, 10);
+            if (!*val || *end || v < 0 || v > 100)
+                return *err = "volume must be a whole number 0-100", no;
+            cfg->volume = (int)v;
+        } else if (!strcmp(key, "audio_device")) {
+            size_t n = strlen(val);
+            if (n < 2 || (val[0] != '"' && val[0] != '\'') || val[n - 1] != val[0] || memchr(val + 1, val[0], n - 2))
+                return *err = "audio_device must be a quoted string", no;
+            if (n - 2 >= sizeof cfg->audio_device)
+                return *err = "audio_device is too long", no;
+            memcpy(cfg->audio_device, val + 1, n - 2);
+            cfg->audio_device[n - 2] = '\0';
         } else {
-            return *err = "unknown key (expected brightness, color or report_rate)", no;
+            return *err = "unknown key (expected brightness, color, report_rate, volume or audio_device)", no;
         }
     }
     return 0;

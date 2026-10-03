@@ -5,6 +5,8 @@ struct bridge_config {
     int brightness;             /* light bar, 0-100 */
     unsigned char color[3];     /* light bar RGB until a game sets one */
     int report_interval_ms;     /* 1/2/4 (1000/500/250 Hz), 0 = leave the pad's default */
+    int volume;                 /* speaker and headphones, 0-100 */
+    char audio_device[128];     /* UTF-8 part of an output device's name to play on the speaker; "" = none */
 };
 
 /* Parses the flat subset of TOML the bridge uses: `key = value` lines and # comments.

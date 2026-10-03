@@ -1,11 +1,12 @@
 /* gcc -I bridge bridge/config.c test/test_config.c -o tc && ./tc */
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include "config.h"
 
 int main(void)
 {
-    struct bridge_config cfg = { 100, { 0, 0, 0x40 }, 0 };
+    struct bridge_config cfg = { 100, { 0, 0, 0x40 }, 0, 64, "" };
     const char *err;
 
     /* Comments, blank lines, CRLF, BOM, # inside a quoted value */
@@ -32,6 +33,15 @@ int main(void)
     assert(config_parse("report_rate = 250 # like USB", &cfg, &err) == 0 && cfg.report_interval_ms == 4);
     assert(config_parse("report_rate = 300", &cfg, &err) == 1 && cfg.report_interval_ms == 4);
     assert(cfg.brightness == 30);
+
+    /* Audio device: a quoted string, any case and spaces kept; "" turns it off */
+    assert(config_parse("audio_device = \"CABLE Input\" # VB-Cable", &cfg, &err) == 0);
+    assert(!strcmp(cfg.audio_device, "CABLE Input"));
+    assert(config_parse("audio_device = ''", &cfg, &err) == 0 && !cfg.audio_device[0]);
+    assert(config_parse("audio_device = CABLE", &cfg, &err) == 1);
+    assert(config_parse("volume = 80", &cfg, &err) == 0 && cfg.volume == 80);
+    assert(config_parse("volume = 101", &cfg, &err) == 1 && cfg.volume == 80);
+    assert(config_parse("audio_device = \"a\"b\"", &cfg, &err) == 1);
 
     puts("ok");
     return 0;

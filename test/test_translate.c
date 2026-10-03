@@ -101,11 +101,18 @@ int main(void)
     unsigned char sbc[DS4_BT_AUDIO_SBC], a[DS4_BT_AUDIO_SIZE];
     for (int i = 0; i < DS4_BT_AUDIO_SBC; i++)
         sbc[i] = (unsigned char)i;
-    ds4_bt_audio_report(0x1234, sbc, a);
+    ds4_bt_audio_report(0x1234, DS4_AUDIO_SPEAKER, sbc, a);
     assert(a[0] == 0x17 && a[1] == 0x40 && a[2] == 0xA0 && a[3] == 0x34 && a[4] == 0x12 && a[5] == 0x02);
     assert(!memcmp(a + 6, sbc, sizeof sbc) && !a[454] && !a[457]);
     unsigned int acrc = 0x2F3A4E5Fu;                            /* python zlib.crc32(b"\xa2" + a[:458]) */
     assert(a[458] == (acrc & 0xFF) && a[461] == (acrc >> 24));
+    ds4_bt_audio_report(0x1234, DS4_AUDIO_HEADSET, sbc, a);
+    assert(a[5] == 0x24 && a[458] == 0x16 && a[461] == 0x19);  /* zlib.crc32 0x1971D016 */
+    unsigned char st[DS4_USB_INPUT_SIZE] = { 0x01 };
+    st[30] = 0x1B;
+    assert(!ds4_headphones(st));
+    st[30] = 0x3B;                                              /* bit 5: headphones, bit 6 would be a mic */
+    assert(ds4_headphones(st));
 
     puts("ok");
     return 0;

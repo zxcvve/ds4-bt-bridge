@@ -64,7 +64,8 @@ size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, 
     return DS4_BT_REPORT_SIZE;
 }
 
-void ds4_bt_audio_report(unsigned short frame, const unsigned char sbc[DS4_BT_AUDIO_SBC], unsigned char out[DS4_BT_AUDIO_SIZE])
+void ds4_bt_audio_report(unsigned short frame, unsigned char target, const unsigned char sbc[DS4_BT_AUDIO_SBC],
+                         unsigned char out[DS4_BT_AUDIO_SIZE])
 {
     memset(out, 0, DS4_BT_AUDIO_SIZE);
     out[0] = 0x17;
@@ -72,7 +73,7 @@ void ds4_bt_audio_report(unsigned short frame, const unsigned char sbc[DS4_BT_AU
     out[2] = 0xA0;
     out[3] = (unsigned char)frame;
     out[4] = (unsigned char)(frame >> 8);
-    out[5] = 0x02;      /* speaker; 0x24 would be the headset jack */
+    out[5] = target;
     memcpy(out + 6, sbc, DS4_BT_AUDIO_SBC);
     unsigned char seed = 0xA2;
     unsigned int crc = ds4_crc32(ds4_crc32(0, &seed, 1), out, DS4_BT_AUDIO_SIZE - 4);

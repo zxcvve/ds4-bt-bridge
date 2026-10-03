@@ -11,3 +11,13 @@ color = "#000040"
 # Bluetooth input report rate in Hz: 250, 500 or 1000. SDL uses 250, like USB, as kinder to other Bluetooth
 # devices. Unset leaves the pad's own default; press s in the bridge to see the rate you actually get.
 # report_rate = 250
+
+# Output device to play on the pad's speaker: part of its name as Windows shows it (Sound settings), any case.
+# The bridge records what plays on that device (loopback). With a virtual cable such as VB-Audio's
+# (https://vb-audio.com/Cable/), pick "CABLE Input" as a game's or app's output, and only the pad plays it.
+# Naming your real speakers works too: the pad then plays along with them. Unset = no audio.
+# audio_device = "CABLE Input"
+
+# Speaker and headphone volume at start, 0-100. [ and ] in the bridge window change it in steps of 10 until exit.
+# Audio goes to the headphones while they're plugged into the pad, to the speaker otherwise.
+volume = 64

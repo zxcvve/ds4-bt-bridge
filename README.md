@@ -33,11 +33,18 @@ the second's fastest report each one arrived, judged by the pad's own timestamps
 packets dropped as bad, and how long writes to the pad (rumble, LED, audio) take.
 `t` toggles a 1 kHz test tone on the pad's speaker (SBC in output report 0x17, layout from public
 captures, confirmed on hardware).
+`audio_device` in `config.toml` (part of an output device's name, e.g. `"CABLE Input"`) plays what plays on that
+device on the pad's speaker: the bridge records it with WASAPI loopback, no driver of its own. With
+[VB-Audio Virtual Cable](https://vb-audio.com/Cable/) set as a game's output, only the pad plays it; naming your
+speakers makes the pad play along. A wrong name stops audio only and prints the device names.
+Audio goes to headphones plugged into the pad's jack, to the speaker otherwise. `volume` in `config.toml` (0-100,
+default 64) sets both; `[`/`]` in the bridge window change it in steps of 10 (shown in the window title).
 The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad. Its gyro/accel
 calibration (feature 0x02) is another pad's, fixed in ViGEmBus, so the bridge remaps the real pad's raw IMU values
 onto it with SDL's math. Like SDL, it drops Bluetooth packets without the HID flag or, once CRCs prove reliable,
 with a bad CRC.
 
 ## Not done
-- Speaker: only the `t` test tone; no capture of game/system audio yet.
+- Speaker: no mic; volume 0-100 is sent raw, the pad's real range is unknown; audio stops for good if the device goes away or its format
+  changes, until the bridge restarts.
 - XInput-only games still need ViGEm or Steam Input.

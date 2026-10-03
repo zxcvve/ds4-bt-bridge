@@ -25,12 +25,18 @@ size_t ds4_bt_in_to_usb(const unsigned char *in, size_t n, unsigned char *out, s
  * pad for that input report rate. Returns translated length, or 0 if not ours. */
 size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, size_t cap, unsigned char interval_ms);
 
-/* BT output 0x17, audio only (no rumble/LED): 4 SBC frames for the speaker. frame counts SBC frames sent so far
- * (+4 per report, wraps). Layout from the Habr/SensePost captures: 17 40 A0, frame LE16, 02 (speaker), SBC, CRC32. */
-void ds4_bt_audio_report(unsigned short frame, const unsigned char sbc[DS4_BT_AUDIO_SBC], unsigned char out[DS4_BT_AUDIO_SIZE]);
+/* BT output 0x17, audio only (no rumble/LED): 4 SBC frames. frame counts SBC frames sent so far (+4 per report,
+ * wraps). Layout from the Habr/SensePost captures: 17 40 A0, frame LE16, target, SBC, CRC32. */
+#define DS4_AUDIO_SPEAKER 0x02
+#define DS4_AUDIO_HEADSET 0x24
+void ds4_bt_audio_report(unsigned short frame, unsigned char target, const unsigned char sbc[DS4_BT_AUDIO_SBC],
+                         unsigned char out[DS4_BT_AUDIO_SIZE]);
 
 /* Battery from USB input 0x01 (byte 30), mapped like SDL: percent, or -1 if unknown. *cable = USB cable plugged in. */
 int ds4_battery_percent(const unsigned char *usb_in, int *cable);
+
+/* Headphones in the pad's jack, from USB input 0x01 (byte 30, bit 5). */
+#define ds4_headphones(usb_in) (((usb_in)[30] & 0x20) != 0)
 
 /* Light bar dimming for USB output 0x05: remembers the color the report sets (flag 0x02) in led[3],
  * then makes the report set the light bar to led scaled to percent (0 = off). */
