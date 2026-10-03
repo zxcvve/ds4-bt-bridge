@@ -373,18 +373,19 @@ static DWORD WINAPI keyboard_thread(LPVOID unused)
     while (ReadConsoleInputW(con, &rec, 1, &got)) {     /* fails if stdin isn't a console: no keys then */
         if (got != 1 || rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown)
             continue;
-        WCHAR key = rec.Event.KeyEvent.uChar.UnicodeChar;
-        if (key == '+' || key == '=')
+        /* Virtual key codes, not characters: the same keys work with any keyboard layout (on a Russian one, [ is х). */
+        WORD key = rec.Event.KeyEvent.wVirtualKeyCode;
+        if (key == VK_OEM_PLUS || key == VK_ADD)
             set_brightness(brightness + 10);
-        else if (key == '-' || key == '_')
+        else if (key == VK_OEM_MINUS || key == VK_SUBTRACT)
             set_brightness(brightness - 10);
-        else if (key == 's' || key == 'S')
+        else if (key == 'S')
             printf("Stats %s.\n", InterlockedXor(&show_stats, 1) ? "off" : "on");
-        else if (key == ']' || key == '}')
+        else if (key == VK_OEM_6)                           /* ] on US layouts */
             set_volume(volume + 10);
-        else if (key == '[' || key == '{')
+        else if (key == VK_OEM_4)                           /* [ */
             set_volume(volume - 10);
-        else if (key == 't' || key == 'T')
+        else if (key == 'T')
             printf("Test tone %s.\n", InterlockedXor(&tone_on, 1) ? "off" : "on");
     }
     return 0;
@@ -500,7 +501,7 @@ int main(int argc, char **argv)
     CreateThread(NULL, 0, tone_thread, NULL, 0, NULL);
     if (audio_device[0])
         CreateThread(NULL, 0, capture_thread, NULL, 0, NULL);
-    printf("Bridging. +/- changes light bar brightness, [/] the volume, s toggles link stats, t plays a test tone;"
+    printf("Bridging. +/- changes light bar brightness, [ and ] the volume, s toggles link stats, t plays a test tone;"
            " battery is in the window title.\nPS + Triangle on the pad turns it off.\n"
            "Ctrl+C to stop.\n");
 
