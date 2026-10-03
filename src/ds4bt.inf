@@ -1,0 +1,59 @@
+; Extension INF: adds ds4bt as a lower filter under the inbox HidBth.sys for a Bluetooth DualShock 4.
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Extension
+ClassGuid   = {e2f84ce7-8efa-411c-aa69-97454ca4cb57}
+ExtensionId = {7249e8b7-0340-47f9-afc7-75e9d1258241}
+Provider    = %Provider%
+DriverVer   = 10/03/2026,0.1.0.0
+CatalogFile = ds4bt.cat
+PnpLockdown = 1
+
+[Manufacturer]
+%Provider% = Models,NTamd64
+
+[Models.NTamd64]
+%DeviceDesc% = Ds4Bt, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0002054c_PID&05c4
+%DeviceDesc% = Ds4Bt, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0002054c_PID&09cc
+
+[Ds4Bt.NT]
+CopyFiles = Ds4Bt.CopyFiles
+
+[Ds4Bt.NT.HW]
+AddReg = Ds4Bt.HW.AddReg
+
+[Ds4Bt.HW.AddReg]
+HKR,,"LowerFilters",0x00010008,"ds4bt"
+
+[Ds4Bt.NT.Services]
+AddService = ds4bt,,Ds4Bt.Service
+
+[Ds4Bt.Service]
+DisplayName   = %SvcDesc%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1
+ServiceBinary = %13%\ds4bt.sys
+AddReg        = Ds4Bt.Service.AddReg
+
+[Ds4Bt.Service.AddReg]
+; 0 = log only (Phase 0). Set to 1 once the USB descriptor is in place.
+HKR,Parameters,"Translate",0x00010003,0
+
+[Ds4Bt.CopyFiles]
+ds4bt.sys
+
+[DestinationDirs]
+Ds4Bt.CopyFiles = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+ds4bt.sys = 1
+
+[Strings]
+Provider   = "ds4-driver"
+DeviceDesc = "DualShock 4 Bluetooth USB-mode filter"
+SvcDesc    = "DualShock 4 Bluetooth USB-mode filter"
+DiskName   = "ds4bt install disk"
