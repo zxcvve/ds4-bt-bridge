@@ -1,4 +1,4 @@
-/* gcc -I src src/ds4_translate.c test/test_translate.c -o t && ./t */
+/* gcc -I bridge bridge/ds4_translate.c test/test_translate.c -o t && ./t */
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -47,12 +47,6 @@ int main(void)
     unsigned char short_in[] = { 0x01, 0x80, 0x7F, 0x80, 0x7F, 0x08, 0, 0, 0, 0 };
     n = ds4_bt_in_to_usb(short_in, sizeof short_in, out, sizeof out);
     assert(n == 64 && !memcmp(out, short_in, sizeof short_in) && out[63] == 0);
-
-    /* Calibration feature 0x05 -> 0x02 */
-    unsigned char cal[41] = { 0x05, 0x11, 0x22 };
-    cal[36] = 0x99;
-    n = ds4_bt_in_to_usb(cal, sizeof cal, out, sizeof out);
-    assert(n == 37 && out[0] == 0x02 && out[1] == 0x11 && out[2] == 0x22 && out[36] == 0x99);
 
     /* Battery byte 30: low nibble level, bit 4 cable (SDL mapping) */
     unsigned char usb_in[64] = { 0x01 };

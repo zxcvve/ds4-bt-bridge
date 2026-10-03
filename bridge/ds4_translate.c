@@ -38,15 +38,6 @@ size_t ds4_bt_in_to_usb(const unsigned char *in, size_t n, unsigned char *out, s
         return DS4_USB_INPUT_SIZE;
     }
 
-    if (in[0] == 0x05) {
-        /* Calibration: BT 0x05 is USB 0x02 plus CRC; data bytes are identical. */
-        if (n < DS4_USB_CALIB_SIZE || cap < DS4_USB_CALIB_SIZE)
-            return 0;
-        out[0] = 0x02;
-        memcpy(out + 1, in + 1, DS4_USB_CALIB_SIZE - 1);
-        return DS4_USB_CALIB_SIZE;
-    }
-
     return 0;
 }
 

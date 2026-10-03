@@ -1,5 +1,5 @@
 /*
- * ds4bridge: user-mode alternative to ds4bt.sys. No test signing needed.
+ * ds4bridge: makes a Bluetooth DS4 look like a USB one to games. No test signing needed.
  * Reads the Bluetooth DS4 with hidapi and mirrors it onto a ViGEmBus virtual DS4 v2 (USB layout).
  * Output reports written to the virtual pad (rumble, light bar) go back to the real one over Bluetooth.
  * While it runs, the real pad is hidden from other apps with HidHide (if installed).

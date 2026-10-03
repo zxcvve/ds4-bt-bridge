@@ -1,4 +1,4 @@
-/* DS4 gyro/accel calibration, SDL's math. Bridge-only: uses floating point, so it stays out of the driver. */
+/* DS4 gyro/accel calibration, SDL's math. */
 #pragma once
 #include <stddef.h>
 
