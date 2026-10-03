@@ -373,7 +373,7 @@ VOID EvtInternalIoctl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLen, size_t 
     case IOCTL_UMDF_HID_SET_OUTPUT_REPORT: {
         UCHAR bt[DS4_BT_REPORT_SIZE];
         pkt = (PHID_XFER_PACKET)WdfRequestWdmGetIrp(Request)->UserBuffer;
-        size_t n = pkt ? ds4_usb_out_to_bt(pkt->reportBuffer, pkt->reportBufferLen, bt, sizeof(bt)) : 0;
+        size_t n = pkt ? ds4_usb_out_to_bt(pkt->reportBuffer, pkt->reportBufferLen, bt, sizeof(bt), 0) : 0;
         if (!n) {
             if (Forward(Request, dc->Target))
                 return;

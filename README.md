@@ -69,6 +69,7 @@ If the bridge is killed or crashes, the pad stays hidden until the bridge's next
 The window title shows the battery level. `+`/`-` in the bridge window change the light bar brightness in 10% steps
 (0 turns it off to save battery). The starting brightness and the color used until a game sets one are in
 `config.toml` next to `ds4bridge.exe` (template: `bridge/config.toml`); `--brightness N` overrides the file.
+`report_rate` there (250, 500 or 1000 Hz, SDL's values) sets the pad's Bluetooth input rate; unset keeps the pad's default.
 `s` toggles link stats, printed once a second: input report rate, longest gap, delivery delay (how much later than
 the second's fastest report each one arrived, judged by the pad's own timestamps; constant latency isn't visible),
 packets dropped as bad, and how long writes to the pad (rumble, LED) take.

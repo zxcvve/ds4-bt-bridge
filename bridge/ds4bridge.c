@@ -170,6 +170,7 @@ static void hide_pad(const char *path)
 static CRITICAL_SECTION out_lock;
 static unsigned char led[3];
 static int brightness = 100;
+static unsigned char report_interval;   /* from config.toml; 0 = pad's default */
 static int battery = -1, cable;
 
 static void update_title(void)
@@ -205,7 +206,7 @@ static void send_to_pad(unsigned char *usb)
     unsigned char bt[DS4_BT_REPORT_SIZE];
     EnterCriticalSection(&out_lock);
     ds4_usb_out_dim_led(usb, led, brightness);
-    size_t n = ds4_usb_out_to_bt(usb, DS4_USB_OUTPUT_SIZE, bt, sizeof bt);
+    size_t n = ds4_usb_out_to_bt(usb, DS4_USB_OUTPUT_SIZE, bt, sizeof bt, report_interval);
     if (n) {
         uint64_t t0 = now_us();
         int r = hid_write(pad, bt, n);
@@ -310,9 +311,10 @@ static void load_config(struct bridge_config *cfg)
 
 int main(int argc, char **argv)
 {
-    struct bridge_config cfg = { 100, { 0x00, 0x00, 0x40 } };     /* SDL's player-1 blue */
+    struct bridge_config cfg = { 100, { 0x00, 0x00, 0x40 }, 0 };  /* SDL's player-1 blue */
     load_config(&cfg);
     memcpy(led, cfg.color, sizeof led);
+    report_interval = (unsigned char)cfg.report_interval_ms;      /* sent with the first light bar report */
     int start_brightness = cfg.brightness;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--brightness") && i + 1 < argc)

@@ -50,14 +50,14 @@ size_t ds4_bt_in_to_usb(const unsigned char *in, size_t n, unsigned char *out, s
     return 0;
 }
 
-size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, size_t cap)
+size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, size_t cap, unsigned char interval_ms)
 {
     if (n < 1 || in[0] != 0x05 || cap < DS4_BT_REPORT_SIZE)
         return 0;
 
     memset(out, 0, DS4_BT_REPORT_SIZE);
     out[0] = 0x11;
-    out[1] = 0xC0;                       /* HID + CRC present, poll interval 0 */
+    out[1] = 0xC0 | (interval_ms & 0x0F); /* HID + CRC present, input report interval */
     /* USB[1..31] (flags, 0x04, pad, rumble R/L, RGB, flash on/off, ...) == BT[3..33] */
     size_t copy = n - 1 < DS4_USB_OUTPUT_SIZE - 1 ? n - 1 : DS4_USB_OUTPUT_SIZE - 1;
     memcpy(out + 3, in + 1, copy);

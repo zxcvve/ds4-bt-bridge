@@ -13,7 +13,7 @@ int main(void)
 
     /* Output: rumble R=0x40 L=0x80, LED blue, flash 10/20 */
     unsigned char usb_out[32] = { 0x05, 0xF7, 0x04, 0x00, 0x40, 0x80, 0x00, 0x00, 0xFF, 10, 20 };
-    size_t n = ds4_usb_out_to_bt(usb_out, sizeof usb_out, out, sizeof out);
+    size_t n = ds4_usb_out_to_bt(usb_out, sizeof usb_out, out, sizeof out, 0);
     assert(n == 78);
     assert(out[0] == 0x11 && out[1] == 0xC0 && out[2] == 0x00);
     assert(out[3] == 0xF7 && out[4] == 0x04);
@@ -25,7 +25,14 @@ int main(void)
 
     /* Non-DS4 output passes through */
     unsigned char other[] = { 0x11, 0 };
-    assert(ds4_usb_out_to_bt(other, sizeof other, out, sizeof out) == 0);
+    assert(ds4_usb_out_to_bt(other, sizeof other, out, sizeof out, 0) == 0);
+
+    /* Report interval goes into the low bits of byte 1, inside the CRC */
+    n = ds4_usb_out_to_bt(usb_out, sizeof usb_out, out, sizeof out, 4);
+    assert(n == 78 && out[1] == 0xC4);
+    unsigned char hdr = 0xA2;
+    unsigned int icrc = ds4_crc32(ds4_crc32(0, &hdr, 1), out, 74);
+    assert(out[74] == (icrc & 0xFF) && out[77] == (icrc >> 24) && icrc != crc);
 
     /* Extended input: BT[3..65] -> USB[1..63] */
     unsigned char bt_in[78];

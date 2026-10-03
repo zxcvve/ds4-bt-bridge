@@ -5,7 +5,7 @@
 
 int main(void)
 {
-    struct bridge_config cfg = { 100, { 0, 0, 0x40 } };
+    struct bridge_config cfg = { 100, { 0, 0, 0x40 }, 0 };
     const char *err;
 
     /* Comments, blank lines, CRLF, BOM, # inside a quoted value */
@@ -26,6 +26,11 @@ int main(void)
     assert(config_parse("color = \"#12345G\"", &cfg, &err) == 1);
     assert(config_parse("colour = \"#123456\"", &cfg, &err) == 1);
     assert(config_parse("[bridge]", &cfg, &err) == 1);
+
+    /* Report rate in Hz maps to SDL's interval; anything else is an error */
+    assert(config_parse("report_rate = 1000", &cfg, &err) == 0 && cfg.report_interval_ms == 1);
+    assert(config_parse("report_rate = 250 # like USB", &cfg, &err) == 0 && cfg.report_interval_ms == 4);
+    assert(config_parse("report_rate = 300", &cfg, &err) == 1 && cfg.report_interval_ms == 4);
     assert(cfg.brightness == 30);
 
     puts("ok");

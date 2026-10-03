@@ -66,8 +66,17 @@ int config_parse(const char *text, struct bridge_config *cfg, const char **err)
             cfg->color[0] = (unsigned char)(rgb >> 16);
             cfg->color[1] = (unsigned char)(rgb >> 8);
             cfg->color[2] = (unsigned char)rgb;
+        } else if (!strcmp(key, "report_rate")) {
+            if (!strcmp(val, "250"))
+                cfg->report_interval_ms = 4;
+            else if (!strcmp(val, "500"))
+                cfg->report_interval_ms = 2;
+            else if (!strcmp(val, "1000"))
+                cfg->report_interval_ms = 1;
+            else
+                return *err = "report_rate must be 250, 500 or 1000", no;
         } else {
-            return *err = "unknown key (expected brightness or color)", no;
+            return *err = "unknown key (expected brightness, color or report_rate)", no;
         }
     }
     return 0;

@@ -20,8 +20,9 @@ unsigned int ds4_crc32(unsigned int crc, const unsigned char *p, size_t n);
  * Returns translated length, or 0 if the report is not ours (caller passes it through unchanged). */
 size_t ds4_bt_in_to_usb(const unsigned char *in, size_t n, unsigned char *out, size_t cap);
 
-/* USB output 0x05 -> BT output 0x11 with CRC32. Returns translated length, or 0 if not ours. */
-size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, size_t cap);
+/* USB output 0x05 -> BT output 0x11 with CRC32. interval_ms (0, or 1/2/4 = 1000/500/250 Hz, SDL's values) asks the
+ * pad for that input report rate. Returns translated length, or 0 if not ours. */
+size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, size_t cap, unsigned char interval_ms);
 
 /* Battery from USB input 0x01 (byte 30), mapped like SDL: percent, or -1 if unknown. *cable = USB cable plugged in. */
 int ds4_battery_percent(const unsigned char *usb_in, int *cable);
