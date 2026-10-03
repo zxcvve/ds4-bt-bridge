@@ -11,6 +11,7 @@ written to the virtual pad go back to the real one.
 - `bridge/config.c`: tested: `gcc -I bridge bridge/config.c test/test_config.c -o tc && ./tc`
 - `bridge/imu.c`: tested: `gcc -I bridge bridge/imu.c test/test_imu.c -lm -o ti && ./ti`
 - `bridge/stats.c`: tested: `gcc -I bridge bridge/stats.c test/test_stats.c -lm -o ts && ./ts`
+- `bridge/sbc.c`: tested: `gcc -I bridge bridge/sbc.c test/test_sbc.c -lm -o tsbc && ./tsbc`
 
 ## Build and run
 Needs [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) and [HidHide](https://github.com/nefarius/HidHide/releases)
