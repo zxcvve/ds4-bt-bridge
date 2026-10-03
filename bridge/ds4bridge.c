@@ -9,6 +9,7 @@
 #include <initguid.h>
 #include <devpkey.h>
 #include <cfgmgr32.h>
+#include <conio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -154,26 +155,87 @@ static void hide_pad(const char *path)
     wprintf(L"HidHide: real pad hidden while the bridge runs (%ls)\n", hidden_inst);
 }
 
+/* Light bar color last set by a game (SDL's player-1 blue until then) and the user's brightness. */
+static CRITICAL_SECTION out_lock;
+static unsigned char led[3] = { 0x00, 0x00, 0x40 };
+static int brightness = 100;
+static int battery = -1, cable;
+
+static void update_title(void)
+{
+    WCHAR title[128];
+    if (battery < 0)
+        swprintf(title, ARRAYSIZE(title), L"ds4bridge - battery ? - light bar %d%%", brightness);
+    else
+        swprintf(title, ARRAYSIZE(title), L"ds4bridge - battery %d%%%ls - light bar %d%%",
+                 battery, cable ? (battery == 100 ? L" (full)" : L" (charging)") : L"", brightness);
+    SetConsoleTitleW(title);
+}
+
+/* Sends a USB output 0x05 to the pad, light bar dimmed to the user's brightness. Called from two threads. */
+static void send_to_pad(unsigned char *usb)
+{
+    unsigned char bt[DS4_BT_REPORT_SIZE];
+    EnterCriticalSection(&out_lock);
+    ds4_usb_out_dim_led(usb, led, brightness);
+    size_t n = ds4_usb_out_to_bt(usb, DS4_USB_OUTPUT_SIZE, bt, sizeof bt);
+    if (n && hid_write(pad, bt, n) < 0)
+        fwprintf(stderr, L"write to pad failed: %ls\n", hid_error(pad));
+    LeaveCriticalSection(&out_lock);
+}
+
+/* Re-sends only the light bar (no rumble flag, so the motors keep their state). */
+static void set_brightness(int percent)
+{
+    unsigned char usb[DS4_USB_OUTPUT_SIZE] = { 0x05, 0x00, 0x04 };
+    EnterCriticalSection(&out_lock);
+    brightness = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+    LeaveCriticalSection(&out_lock);
+    send_to_pad(usb);
+    update_title();
+}
+
 static DWORD WINAPI output_thread(LPVOID unused)
 {
     (void)unused;
-    DS4_OUTPUT_BUFFER usb;
-    unsigned char bt[DS4_BT_REPORT_SIZE];
+    DS4_OUTPUT_BUFFER out;
+    unsigned char usb[DS4_USB_OUTPUT_SIZE];
 
     for (;;) {
-        VIGEM_ERROR err = vigem_target_ds4_await_output_report(vigem, vpad, &usb);
+        VIGEM_ERROR err = vigem_target_ds4_await_output_report(vigem, vpad, &out);
         if (!VIGEM_SUCCESS(err)) {
             fprintf(stderr, "ViGEm output wait failed: 0x%08X\n", err);
             exit(1);    /* not ExitProcess: atexit has to unhide the pad */
         }
-        size_t n = ds4_usb_out_to_bt(usb.Buffer, sizeof usb.Buffer, bt, sizeof bt);
-        if (n && hid_write(pad, bt, n) < 0)
-            fwprintf(stderr, L"write to pad failed: %ls\n", hid_error(pad));
+        if (out.Buffer[0] != 0x05)
+            continue;
+        memcpy(usb, out.Buffer, sizeof usb);
+        send_to_pad(usb);
     }
 }
 
-int main(void)
+static DWORD WINAPI keyboard_thread(LPVOID unused)
 {
+    (void)unused;
+    for (;;) {
+        int key = _getch();
+        if (key == '+' || key == '=')
+            set_brightness(brightness + 10);
+        else if (key == '-' || key == '_')
+            set_brightness(brightness - 10);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    int start_brightness = 100;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--brightness") && i + 1 < argc)
+            start_brightness = atoi(argv[++i]);
+        else
+            return fprintf(stderr, "usage: ds4bridge [--brightness 0-100]\n"), 2;
+    }
+
     if (hid_init())
         return fprintf(stderr, "hid_init failed\n"), 1;
 
@@ -201,8 +263,11 @@ int main(void)
         return fprintf(stderr, "Can't add virtual DS4: 0x%08X\n", err), 1;
     hide_pad(path);
 
+    InitializeCriticalSection(&out_lock);
+    set_brightness(start_brightness);
     CreateThread(NULL, 0, output_thread, NULL, 0, NULL);
-    printf("Bridging. Ctrl+C to stop (the virtual pad goes away with the process).\n");
+    CreateThread(NULL, 0, keyboard_thread, NULL, 0, NULL);
+    printf("Bridging. +/- changes light bar brightness; battery is in the window title. Ctrl+C to stop.\n");
 
     /* ponytail: exits when the pad disconnects; wrap in a reconnect loop if that gets annoying. */
     unsigned char in[128], usb[DS4_USB_INPUT_SIZE];
@@ -215,5 +280,12 @@ int main(void)
             continue;
         memcpy(report.ReportBuffer, usb + 1, sizeof report.ReportBuffer);
         vigem_target_ds4_update_ex(vigem, vpad, report);
+
+        int c = cable, pct = in[0] == 0x11 ? ds4_battery_percent(usb, &c) : battery;   /* short reports have no battery */
+        if (pct != battery || (pct >= 0 && c != cable)) {
+            battery = pct;
+            cable = c;
+            update_title();
+        }
     }
 }

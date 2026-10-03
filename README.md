@@ -63,6 +63,8 @@ Run `bridge\build\Release\ds4bridge.exe` (no elevation needed). While it runs, i
 HidHide's driver, so games see only the virtual one; on exit (Ctrl+C, closing the window, pad disconnect) it unhides it.
 Start the bridge before games and Steam: HidHide only blocks new opens, so an app that already has the real pad open keeps it.
 If the bridge is killed or crashes, the pad stays hidden until the bridge's next clean exit.
+The window title shows the battery level. `+`/`-` in the bridge window change the light bar brightness in 10% steps
+(0 turns it off to save battery); `--brightness N` sets the starting value. Games still pick the color.
 The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad: check gyro in SDL `testcontroller`.
 
 ## Not done

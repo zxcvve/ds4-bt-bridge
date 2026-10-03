@@ -22,3 +22,10 @@ size_t ds4_bt_in_to_usb(const unsigned char *in, size_t n, unsigned char *out, s
 
 /* USB output 0x05 -> BT output 0x11 with CRC32. Returns translated length, or 0 if not ours. */
 size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, size_t cap);
+
+/* Battery from USB input 0x01 (byte 30), mapped like SDL: percent, or -1 if unknown. *cable = USB cable plugged in. */
+int ds4_battery_percent(const unsigned char *usb_in, int *cable);
+
+/* Light bar dimming for USB output 0x05: remembers the color the report sets (flag 0x02) in led[3],
+ * then makes the report set the light bar to led scaled to percent (0 = off). */
+void ds4_usb_out_dim_led(unsigned char *usb_out, unsigned char led[3], int percent);

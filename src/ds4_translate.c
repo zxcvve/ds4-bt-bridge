@@ -73,3 +73,21 @@ size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, 
     out[77] = (unsigned char)(crc >> 24);
     return DS4_BT_REPORT_SIZE;
 }
+
+int ds4_battery_percent(const unsigned char *usb_in, int *cable)
+{
+    unsigned char level = usb_in[30] & 0x0F;
+    *cable = (usb_in[30] & 0x10) != 0;
+    if (*cable && level > 11)
+        return -1;
+    return level >= 10 ? 100 : level * 10 + 5;     /* 11 = full on cable */
+}
+
+void ds4_usb_out_dim_led(unsigned char *usb_out, unsigned char led[3], int percent)
+{
+    if (usb_out[1] & 0x02)
+        memcpy(led, usb_out + 6, 3);
+    usb_out[1] |= 0x02;
+    for (int i = 0; i < 3; i++)
+        usb_out[6 + i] = (unsigned char)(led[i] * percent / 100);
+}
