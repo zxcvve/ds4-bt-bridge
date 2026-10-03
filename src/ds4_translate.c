@@ -13,8 +13,7 @@ unsigned int ds4_crc32(unsigned int crc, const unsigned char *p, size_t n)
     return ~crc;
 }
 
-/* ponytail: input CRCs are not verified; the baseband already checks ACL packets,
- * and a corrupt frame only glitches one sample. Verify here if that ever shows up. */
+/* Input CRCs are not verified here; ds4_bt_in_valid does that for callers that want SDL's filtering. */
 size_t ds4_bt_in_to_usb(const unsigned char *in, size_t n, unsigned char *out, size_t cap)
 {
     if (n < 1)
@@ -90,4 +89,24 @@ void ds4_usb_out_dim_led(unsigned char *usb_out, unsigned char led[3], int perce
     usb_out[1] |= 0x02;
     for (int i = 0; i < 3; i++)
         usb_out[6 + i] = (unsigned char)(led[i] * percent / 100);
+}
+
+int ds4_bt_in_valid(const unsigned char *in, size_t n, unsigned *good_crcs)
+{
+    if (n >= 1 && in[0] == 0x01)
+        return 1;
+    if (n < DS4_BT_REPORT_SIZE || in[0] != 0x11 || !(in[1] & 0x80))
+        return 0;
+
+    /* CRC covers the HIDP DATA|Input header (0xA1) plus the report. */
+    unsigned char seed = 0xA1;
+    unsigned int crc = ds4_crc32(ds4_crc32(0, &seed, 1), in, DS4_BT_REPORT_SIZE - 4);
+    unsigned int got = in[74] | in[75] << 8 | in[76] << 16 | (unsigned int)in[77] << 24;
+    if (crc == got) {
+        ++*good_crcs;
+        return 1;
+    }
+    if (*good_crcs > 0)
+        --*good_crcs;
+    return *good_crcs < 3;  /* a pad that never sends valid CRCs still works */
 }

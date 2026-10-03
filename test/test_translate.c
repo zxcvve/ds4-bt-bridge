@@ -72,6 +72,30 @@ int main(void)
     assert(rumble_only[1] == 0x03 && rumble_only[6] == 0 && rumble_only[8] == 0 && led[0] == 200);
     assert(rumble_only[4] == 0x30 && rumble_only[5] == 0x40);
 
+    /* Input validation: HID flag + CRC (seed 0xA1), SDL's tolerance for pads without valid CRCs */
+    unsigned char v[78];
+    for (size_t i = 0; i < sizeof v; i++)
+        v[i] = (unsigned char)i;
+    v[0] = 0x11;
+    v[1] = 0xC0;
+    unsigned int vcrc = 0x2B9723F3u;                            /* python zlib.crc32(b"\xa1" + v[:74]) */
+    v[74] = (unsigned char)vcrc; v[75] = (unsigned char)(vcrc >> 8);
+    v[76] = (unsigned char)(vcrc >> 16); v[77] = (unsigned char)(vcrc >> 24);
+    unsigned good = 0;
+    assert(ds4_bt_in_valid(v, sizeof v, &good) && good == 1);
+    v[10] ^= 1;                                                 /* corrupt: still passes until CRCs proved reliable */
+    assert(ds4_bt_in_valid(v, sizeof v, &good) && good == 0);
+    v[10] ^= 1;
+    for (int i = 0; i < 4; i++)
+        assert(ds4_bt_in_valid(v, sizeof v, &good));
+    v[10] ^= 1;
+    assert(!ds4_bt_in_valid(v, sizeof v, &good) && good == 3); /* 4 good, then a bad one is dropped */
+    v[10] ^= 1;
+    v[1] = 0x40;                                                /* no HID data flag */
+    assert(!ds4_bt_in_valid(v, sizeof v, &good));
+    assert(!ds4_bt_in_valid(v, 70, &good));                     /* too short */
+    assert(ds4_bt_in_valid(short_in, sizeof short_in, &good));  /* basic 0x01 report */
+
     puts("ok");
     return 0;
 }

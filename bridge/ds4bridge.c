@@ -19,10 +19,19 @@
 #include <ViGEm/Client.h>
 #include "ds4_translate.h"
 #include "config.h"
+#include "imu.h"
 
 #define SONY_VID     0x054C
 #define DS4_V1_PID   0x05C4
 #define DS4_V2_PID   0x09CC
+
+/* What ViGEmBus answers for feature 0x02 on every virtual DS4 (sys/Ds4Pdo.cpp): another pad's calibration.
+ * Games decode the virtual pad's gyro/accel with it, so the bridge remaps the real pad's values onto it. */
+static const unsigned char vigem_calib[] = {
+    0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87, 0x22, 0x7B, 0xDD, 0xB2, 0x22, 0x47, 0xDD, 0xBD,
+    0x22, 0x43, 0xDD, 0x1C, 0x02, 0x1C, 0x02, 0x7F, 0x1E, 0x2E, 0xDF, 0x60, 0x1F, 0x4C, 0xE0, 0x3A,
+    0x1D, 0xC6, 0xDE, 0x08, 0x00
+};
 
 static hid_device *pad;
 static PVIGEM_CLIENT vigem;
@@ -277,8 +286,13 @@ int main(int argc, char **argv)
 
     /* Reading calibration switches the pad from the short 0x01 to the full 0x11 input report. */
     unsigned char calib[DS4_BT_CALIB_SIZE] = { 0x05 };
-    if (hid_get_feature_report(pad, calib, sizeof calib) < 0)
+    int calib_n = hid_get_feature_report(pad, calib, sizeof calib);
+    if (calib_n < 0)
         fwprintf(stderr, L"calibration read failed (no gyro/touchpad): %ls\n", hid_error(pad));
+    struct ds4_imu_cal pad_cal, vigem_cal;
+    if (!ds4_imu_cal_parse(calib, calib_n < 0 ? 0 : (size_t)calib_n, 1, &pad_cal))
+        printf("Pad calibration missing or implausible; gyro/accel use SDL's defaults.\n");
+    ds4_imu_cal_parse(vigem_calib, sizeof vigem_calib, 0, &vigem_cal);
 
     vigem = vigem_alloc();
     VIGEM_ERROR err = vigem_connect(vigem);
@@ -302,6 +316,7 @@ int main(int argc, char **argv)
     unsigned char in[128], usb[DS4_USB_INPUT_SIZE], last_id = 0;
     DS4_REPORT_EX report;
     DWORD last_input = GetTickCount(), last_poke = 0;
+    unsigned good_crcs = 0;
     BOOL stalled = FALSE;
     for (;;) {
         int n = hid_read_timeout(pad, in, sizeof in, 100);
@@ -328,8 +343,12 @@ int main(int argc, char **argv)
         stalled = FALSE;
         last_input = now;
         last_id = in[0];
+        if (!ds4_bt_in_valid(in, (size_t)n, &good_crcs))
+            continue;
         if (ds4_bt_in_to_usb(in, (size_t)n, usb, sizeof usb) != DS4_USB_INPUT_SIZE || usb[0] != 0x01)
             continue;
+        if (in[0] == 0x11)
+            ds4_imu_remap(usb, &pad_cal, &vigem_cal);
         memcpy(report.ReportBuffer, usb + 1, sizeof report.ReportBuffer);
         vigem_target_ds4_update_ex(vigem, vpad, report);
 

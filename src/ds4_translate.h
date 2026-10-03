@@ -29,3 +29,7 @@ int ds4_battery_percent(const unsigned char *usb_in, int *cable);
 /* Light bar dimming for USB output 0x05: remembers the color the report sets (flag 0x02) in led[3],
  * then makes the report set the light bar to led scaled to percent (0 = off). */
 void ds4_usb_out_dim_led(unsigned char *usb_out, unsigned char led[3], int percent);
+
+/* BT input check, as SDL does it: a 0x11 report needs the HID-data flag, and once CRCs have been coming in valid,
+ * one with a bad CRC is dropped. *good_crcs is the caller's running count (start at 0). Short 0x01 reports pass. */
+int ds4_bt_in_valid(const unsigned char *in, size_t n, unsigned *good_crcs);

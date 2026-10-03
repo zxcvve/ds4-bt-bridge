@@ -24,6 +24,7 @@ That patch is undocumented, applies to every Bluetooth HID device, and can break
 ## Status
 - `src/ds4_translate.c`: tested: `gcc -I src src/ds4_translate.c test/test_translate.c -o t && ./t`
 - `bridge/config.c`: tested: `gcc -I bridge bridge/config.c test/test_config.c -o tc && ./tc`
+- `bridge/imu.c`: tested: `gcc -I bridge bridge/imu.c test/test_imu.c -lm -o ti && ./ti`
 - `src/driver.c`, `src/ds4bt.inf`: **not compiled or run yet** (needs the WDK on Windows and a real pad).
 
 ## Build (Windows)
@@ -67,7 +68,10 @@ If the bridge is killed or crashes, the pad stays hidden until the bridge's next
 The window title shows the battery level. `+`/`-` in the bridge window change the light bar brightness in 10% steps
 (0 turns it off to save battery). The starting brightness and the color used until a game sets one are in
 `config.toml` next to `ds4bridge.exe` (template: `bridge/config.toml`); `--brightness N` overrides the file.
-The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad: check gyro in SDL `testcontroller`.
+The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad. Its gyro/accel
+calibration (feature 0x02) is another pad's, fixed in ViGEmBus, so the bridge remaps the real pad's raw IMU values
+onto it with SDL's math. Like SDL, it drops Bluetooth packets without the HID flag or, once CRCs prove reliable,
+with a bad CRC.
 
 ## Not done
 - Speaker (BT audio reports 0x14-0x19 + SBC; needs a separate virtual audio driver).
