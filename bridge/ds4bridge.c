@@ -18,6 +18,7 @@
 #include <hidapi.h>
 #include <ViGEm/Client.h>
 #include "ds4_translate.h"
+#include "config.h"
 
 #define SONY_VID     0x054C
 #define DS4_V1_PID   0x05C4
@@ -155,9 +156,9 @@ static void hide_pad(const char *path)
     wprintf(L"HidHide: real pad hidden while the bridge runs (%ls)\n", hidden_inst);
 }
 
-/* Light bar color last set by a game (SDL's player-1 blue until then) and the user's brightness. */
+/* Light bar color last set by a game (config color until then) and the user's brightness. */
 static CRITICAL_SECTION out_lock;
-static unsigned char led[3] = { 0x00, 0x00, 0x40 };
+static unsigned char led[3];
 static int brightness = 100;
 static int battery = -1, cable;
 
@@ -226,9 +227,37 @@ static DWORD WINAPI keyboard_thread(LPVOID unused)
     }
 }
 
+/* config.toml next to the exe; missing file means defaults, a bad one stops the bridge. */
+static void load_config(struct bridge_config *cfg)
+{
+    static char text[16384];
+    WCHAR path[MAX_PATH];
+    const char *err;
+
+    DWORD len = GetModuleFileNameW(NULL, path, ARRAYSIZE(path));
+    WCHAR *slash = wcsrchr(path, L'\\');
+    if (!len || !slash || (size_t)(slash - path) + 13 > ARRAYSIZE(path))
+        return;
+    wcscpy(slash + 1, L"config.toml");
+    FILE *f = _wfopen(path, L"rb");
+    if (!f)
+        return;
+    size_t n = fread(text, 1, sizeof text - 1, f);
+    fclose(f);
+    text[n] = '\0';
+    int line = config_parse(text, cfg, &err);
+    if (line) {
+        fwprintf(stderr, L"%ls, line %d: %hs\n", path, line, err);
+        exit(2);
+    }
+}
+
 int main(int argc, char **argv)
 {
-    int start_brightness = 100;
+    struct bridge_config cfg = { 100, { 0x00, 0x00, 0x40 } };     /* SDL's player-1 blue */
+    load_config(&cfg);
+    memcpy(led, cfg.color, sizeof led);
+    int start_brightness = cfg.brightness;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--brightness") && i + 1 < argc)
             start_brightness = atoi(argv[++i]);

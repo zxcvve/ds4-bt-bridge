@@ -23,6 +23,7 @@ That patch is undocumented, applies to every Bluetooth HID device, and can break
 
 ## Status
 - `src/ds4_translate.c`: tested: `gcc -I src src/ds4_translate.c test/test_translate.c -o t && ./t`
+- `bridge/config.c`: tested: `gcc -I bridge bridge/config.c test/test_config.c -o tc && ./tc`
 - `src/driver.c`, `src/ds4bt.inf`: **not compiled or run yet** (needs the WDK on Windows and a real pad).
 
 ## Build (Windows)
@@ -64,7 +65,8 @@ HidHide's driver, so games see only the virtual one; on exit (Ctrl+C, closing th
 Start the bridge before games and Steam: HidHide only blocks new opens, so an app that already has the real pad open keeps it.
 If the bridge is killed or crashes, the pad stays hidden until the bridge's next clean exit.
 The window title shows the battery level. `+`/`-` in the bridge window change the light bar brightness in 10% steps
-(0 turns it off to save battery); `--brightness N` sets the starting value. Games still pick the color.
+(0 turns it off to save battery). The starting brightness and the color used until a game sets one are in
+`config.toml` next to `ds4bridge.exe` (template: `bridge/config.toml`); `--brightness N` overrides the file.
 The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad: check gyro in SDL `testcontroller`.
 
 ## Not done

@@ -1,0 +1,9 @@
+# ds4bridge settings, read from the folder of ds4bridge.exe (build.ps1 copies this file there once).
+# Missing keys keep their defaults; a typo stops the bridge with the line number.
+
+# Light bar brightness at start, 0-100 (0 = off, saves battery).
+# +/- in the bridge window change it until exit; --brightness N on the command line overrides this.
+brightness = 100
+
+# Light bar color until a game sets its own, "#RRGGBB". Game colors are dimmed by brightness too.
+color = "#000040"

@@ -115,6 +115,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $exe = Join-Path $buildDir "$Configuration\ds4bridge.exe"
+$config = Join-Path (Split-Path $exe) 'config.toml'
+if (-not (Test-Path $config)) {
+    Copy-Item (Join-Path $PSScriptRoot 'config.toml') $config     # once: later builds keep your edits
+}
 Write-Host ""
 Write-Host "Build succeeded: $exe" -ForegroundColor Green
+Write-Host "Settings: $config"
 Write-Host "Needs ViGEmBus and HidHide installed; run it and follow the HidHide command it prints."
