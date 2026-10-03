@@ -54,9 +54,10 @@ feeds a ViGEmBus virtual DS4 v2 (`054C:09CC`, USB layout); rumble and light bar 
 go back to the real one. Don't install `ds4bt.sys` alongside it: the bridge expects the Bluetooth layout.
 
 Needs [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) and [HidHide](https://github.com/nefarius/HidHide/releases)
-(both signed, both retired upstream). Build (VS developer prompt; CMake fetches hidapi and ViGEmClient):
+(both signed, both retired upstream). Building it needs no WDK: VS 2022 or newer ("Desktop development with C++")
+and Git; CMake fetches hidapi and ViGEmClient.
 ```
-cmake -S bridge -B bridge/build && cmake --build bridge/build --config Release
+powershell -ExecutionPolicy Bypass -File bridge\build.ps1 [-Configuration Debug]
 ```
 Run `bridge\build\Release\ds4bridge.exe`. On start it prints the one-time HidHide command (elevated prompt)
 that whitelists the bridge and hides the real pad, so games see only the virtual one.
