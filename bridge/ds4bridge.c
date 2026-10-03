@@ -9,7 +9,6 @@
 #include <initguid.h>
 #include <devpkey.h>
 #include <cfgmgr32.h>
-#include <conio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -270,11 +269,18 @@ static DWORD WINAPI output_thread(LPVOID unused)
     }
 }
 
+/* ReadConsoleInput, not _getch: _getch puts the console in raw mode while it waits, which turns Ctrl+C into a
+ * plain key instead of the signal that unhides the pad and exits. */
 static DWORD WINAPI keyboard_thread(LPVOID unused)
 {
     (void)unused;
-    for (;;) {
-        int key = _getch();
+    HANDLE con = GetStdHandle(STD_INPUT_HANDLE);
+    INPUT_RECORD rec;
+    DWORD got;
+    while (ReadConsoleInputW(con, &rec, 1, &got)) {     /* fails if stdin isn't a console: no keys then */
+        if (got != 1 || rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown)
+            continue;
+        WCHAR key = rec.Event.KeyEvent.uChar.UnicodeChar;
         if (key == '+' || key == '=')
             set_brightness(brightness + 10);
         else if (key == '-' || key == '_')
@@ -282,6 +288,7 @@ static DWORD WINAPI keyboard_thread(LPVOID unused)
         else if (key == 's' || key == 'S')
             printf("Stats %s.\n", InterlockedXor(&show_stats, 1) ? "off" : "on");
     }
+    return 0;
 }
 
 /* config.toml next to the exe; missing file means defaults, a bad one stops the bridge. */
