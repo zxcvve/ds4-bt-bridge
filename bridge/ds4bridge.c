@@ -299,12 +299,35 @@ int main(int argc, char **argv)
     printf("Bridging. +/- changes light bar brightness; battery is in the window title. Ctrl+C to stop.\n");
 
     /* ponytail: exits when the pad disconnects; wrap in a reconnect loop if that gets annoying. */
-    unsigned char in[128], usb[DS4_USB_INPUT_SIZE];
+    unsigned char in[128], usb[DS4_USB_INPUT_SIZE], last_id = 0;
     DS4_REPORT_EX report;
+    DWORD last_input = GetTickCount(), last_poke = 0;
+    BOOL stalled = FALSE;
     for (;;) {
-        int n = hid_read(pad, in, sizeof in);
+        int n = hid_read_timeout(pad, in, sizeof in, 100);
         if (n < 0)
             return fwprintf(stderr, L"pad read failed (disconnected?): %ls\n", hid_error(pad)), 1;
+        DWORD now = GetTickCount();
+        if (n == 0) {
+            /* In 0x11 mode the pad streams nonstop, so silence means the link stalled; Windows may not deliver
+             * input again until something is written to the pad. SDL pokes after 500 ms the same way. */
+            if (last_id == 0x11 && now - last_input >= 500 && now - last_poke >= 500) {
+                if (!stalled)
+                    printf("No input for %lu ms; poking the pad.\n", (unsigned long)(now - last_input));
+                stalled = TRUE;
+                unsigned char poke[DS4_USB_OUTPUT_SIZE] = { 0x05, 0x00, 0x04 };    /* light bar only, unchanged */
+                send_to_pad(poke);
+                last_poke = now;
+            }
+            continue;
+        }
+        if (stalled)
+            printf("Input resumed after %lu ms.\n", (unsigned long)(now - last_input));
+        if (last_id == 0x11 && in[0] != 0x11)
+            printf("Pad switched from extended to 0x%02X reports.\n", in[0]);
+        stalled = FALSE;
+        last_input = now;
+        last_id = in[0];
         if (ds4_bt_in_to_usb(in, (size_t)n, usb, sizeof usb) != DS4_USB_INPUT_SIZE || usb[0] != 0x01)
             continue;
         memcpy(report.ReportBuffer, usb + 1, sizeof report.ReportBuffer);
