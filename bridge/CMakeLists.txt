@@ -13,4 +13,4 @@ FetchContent_Declare(vigemclient
 FetchContent_MakeAvailable(hidapi vigemclient)
 
 add_executable(ds4bridge ds4bridge.c config.c imu.c stats.c sbc.c audio.c ds4_translate.c)
-target_link_libraries(ds4bridge PRIVATE hidapi::winapi ViGEmClient::ViGEmClient setupapi cfgmgr32 ole32)
+target_link_libraries(ds4bridge PRIVATE hidapi::winapi ViGEmClient::ViGEmClient setupapi cfgmgr32 ole32 bthprops)

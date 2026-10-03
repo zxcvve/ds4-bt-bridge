@@ -9,6 +9,7 @@
 #include <initguid.h>
 #include <devpkey.h>
 #include <cfgmgr32.h>
+#include <bluetoothapis.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -389,6 +390,36 @@ static DWORD WINAPI keyboard_thread(LPVOID unused)
     return 0;
 }
 
+/* PS + Triangle, like Steam: drop the pad's Bluetooth link (what DS4Windows does), and the DS4 powers off.
+ * The pad read then fails and the bridge exits as on any disconnect. Returns FALSE (message printed) if it can't. */
+#define BTH_DISCONNECT_DEVICE CTL_CODE(FILE_DEVICE_BLUETOOTH, 0x03, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+static BOOL power_off_pad(void)
+{
+    WCHAR serial[64];
+    unsigned long long addr;
+    if (hid_get_serial_number_string(pad, serial, ARRAYSIZE(serial)) < 0 || !ds4_parse_mac(serial, &addr)) {
+        fprintf(stderr, "Can't turn the pad off: Windows didn't give its Bluetooth address.\n");
+        return FALSE;
+    }
+    BLUETOOTH_FIND_RADIO_PARAMS params = { sizeof params };
+    HANDLE radio;
+    HBLUETOOTH_RADIO_FIND find = BluetoothFindFirstRadio(&params, &radio);
+    BOOL ok = FALSE;
+    DWORD err = find ? 0 : GetLastError(), got;
+    for (BOOL more = find != NULL; more && !ok; more = BluetoothFindNextRadio(find, &radio)) {
+        ok = DeviceIoControl(radio, BTH_DISCONNECT_DEVICE, &addr, sizeof addr, NULL, 0, &got, NULL);
+        if (!ok)
+            err = GetLastError();
+        CloseHandle(radio);
+    }
+    if (find)
+        BluetoothFindRadioClose(find);
+    if (!ok)
+        fprintf(stderr, "Can't turn the pad off: Bluetooth disconnect failed (error %lu).\n", err);
+    return ok;
+}
+
 /* config.toml next to the exe; missing file means defaults, a bad one stops the bridge. */
 static void load_config(struct bridge_config *cfg)
 {
@@ -470,7 +501,7 @@ int main(int argc, char **argv)
     if (audio_device[0])
         CreateThread(NULL, 0, capture_thread, NULL, 0, NULL);
     printf("Bridging. +/- changes light bar brightness, [/] the volume, s toggles link stats, t plays a test tone;"
-           " battery is in the window title.\n"
+           " battery is in the window title.\nPS + Triangle on the pad turns it off.\n"
            "Ctrl+C to stop.\n");
 
     /* ponytail: exits when the pad disconnects; wrap in a reconnect loop if that gets annoying. */
@@ -478,10 +509,12 @@ int main(int argc, char **argv)
     DS4_REPORT_EX report;
     DWORD last_input = GetTickCount(), last_poke = 0, last_stats = GetTickCount();
     unsigned good_crcs = 0;
-    BOOL stalled = FALSE;
+    BOOL stalled = FALSE, combo = FALSE, powered_off = FALSE;
     for (;;) {
         int n = hid_read_timeout(pad, in, sizeof in, 100);
         uint64_t arrival_us = now_us();
+        if (n < 0 && powered_off)
+            return printf("Pad turned off.\n"), 0;
         if (n < 0)
             return fwprintf(stderr, L"pad read failed (disconnected?): %ls\n", hid_error(pad)), 1;
         DWORD now = GetTickCount();
@@ -518,6 +551,10 @@ int main(int argc, char **argv)
         if (in[0] == 0x11) {
             stats_input(&lstats, arrival_us, (uint16_t)(usb[10] | usb[11] << 8));    /* pad timestamp */
             ds4_imu_remap(usb, &pad_cal, &vigem_cal);
+        }
+        if (ds4_power_off_combo(usb) != combo && (combo = !combo) && !powered_off) {
+            printf("PS + Triangle: turning the pad off.\n");
+            powered_off = power_off_pad();
         }
         memcpy(report.ReportBuffer, usb + 1, sizeof report.ReportBuffer);
         vigem_target_ds4_update_ex(vigem, vpad, report);

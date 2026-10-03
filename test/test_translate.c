@@ -114,6 +114,19 @@ int main(void)
     st[30] = 0x3B;                                              /* bit 5: headphones, bit 6 would be a mic */
     assert(ds4_headphones(st));
 
+    /* Power-off combo and the Bluetooth address it disconnects */
+    st[5] = 0x88;                                               /* Triangle, d-pad released */
+    assert(!ds4_power_off_combo(st));
+    st[7] = 0x05;                                               /* PS, plus counter bits */
+    assert(ds4_power_off_combo(st));
+    st[5] = 0x08;
+    assert(!ds4_power_off_combo(st));
+    unsigned long long mac = 0;
+    assert(ds4_parse_mac(L"1c666d0a2bF3", &mac) && mac == 0x1C666D0A2BF3ull);
+    assert(ds4_parse_mac(L"1C:66:6D:0A:2B:F4", &mac) && mac == 0x1C666D0A2BF4ull);
+    assert(!ds4_parse_mac(L"1c666d0a2b", &mac) && !ds4_parse_mac(L"1c666d0a2bf3a", &mac));
+    assert(!ds4_parse_mac(L"1c666d0a2bg3", &mac) && !ds4_parse_mac(L"", &mac) && mac == 0x1C666D0A2BF4ull);
+
     puts("ok");
     return 0;
 }

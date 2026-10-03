@@ -7,6 +7,7 @@
  */
 #pragma once
 #include <stddef.h>
+#include <wchar.h>
 
 #define DS4_BT_REPORT_SIZE   78   /* output 0x11 incl. id and CRC32 */
 #define DS4_BT_CALIB_SIZE    41   /* feature 0x05 incl. id and CRC32 */
@@ -37,6 +38,13 @@ int ds4_battery_percent(const unsigned char *usb_in, int *cable);
 
 /* Headphones in the pad's jack, from USB input 0x01 (byte 30, bit 5). */
 #define ds4_headphones(usb_in) (((usb_in)[30] & 0x20) != 0)
+
+/* PS (byte 7, bit 0) and Triangle (byte 5, bit 7) both held, from USB input 0x01: Steam's "turn the pad off". */
+#define ds4_power_off_combo(usb_in) (((usb_in)[7] & 0x01) && ((usb_in)[5] & 0x80))
+
+/* Bluetooth address from the HID serial Windows reports for a Bluetooth pad: 12 hex digits, ':' or '-' allowed
+ * between them. Returns 1 and sets *addr (as BTH_ADDR, first byte most significant), or 0. */
+int ds4_parse_mac(const wchar_t *s, unsigned long long *addr);
 
 /* Light bar dimming for USB output 0x05: remembers the color the report sets (flag 0x02) in led[3],
  * then makes the report set the light bar to led scaled to percent (0 = off). */

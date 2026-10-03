@@ -81,6 +81,25 @@ void ds4_bt_audio_report(unsigned short frame, unsigned char target, const unsig
         out[DS4_BT_AUDIO_SIZE - 4 + i] = (unsigned char)(crc >> 8 * i);
 }
 
+int ds4_parse_mac(const wchar_t *s, unsigned long long *addr)
+{
+    unsigned long long a = 0;
+    int digits = 0;
+    for (; *s; s++) {
+        int d = *s >= L'0' && *s <= L'9' ? *s - L'0' : *s >= L'a' && *s <= L'f' ? *s - L'a' + 10 :
+                *s >= L'A' && *s <= L'F' ? *s - L'A' + 10 : -1;
+        if (d < 0 && (*s == L':' || *s == L'-'))
+            continue;
+        if (d < 0 || ++digits > 12)
+            return 0;
+        a = a << 4 | (unsigned)d;
+    }
+    if (digits != 12)
+        return 0;
+    *addr = a;
+    return 1;
+}
+
 int ds4_battery_percent(const unsigned char *usb_in, int *cable)
 {
     unsigned char level = usb_in[30] & 0x0F;

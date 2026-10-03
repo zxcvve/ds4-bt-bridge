@@ -24,7 +24,8 @@ Run `bridge\build\Release\ds4bridge.exe` (no elevation needed). While it runs, i
 HidHide's driver, so games see only the virtual one; on exit (Ctrl+C, closing the window, pad disconnect) it unhides it.
 Start the bridge before games and Steam: HidHide only blocks new opens, so an app that already has the real pad open keeps it.
 If the bridge is killed or crashes, the pad stays hidden until the bridge's next clean exit.
-The window title shows the battery level. `+`/`-` in the bridge window change the light bar brightness in 10% steps
+The window title shows the battery level. PS + Triangle on the pad turns it off, like in Steam: the bridge drops
+its Bluetooth link (the pad powers off on that) and exits. `+`/`-` in the bridge window change the light bar brightness in 10% steps
 (0 turns it off to save battery). The starting brightness and the color used until a game sets one are in
 `config.toml` next to `ds4bridge.exe` (template: `bridge/config.toml`); `--brightness N` overrides the file.
 `report_rate` there (250, 500 or 1000 Hz, SDL's values) sets the pad's Bluetooth input rate; unset keeps the pad's default.
