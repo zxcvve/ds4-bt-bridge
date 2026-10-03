@@ -59,8 +59,10 @@ and Git; CMake fetches hidapi and ViGEmClient.
 ```
 powershell -ExecutionPolicy Bypass -File bridge\build.ps1 [-Configuration Debug]
 ```
-Run `bridge\build\Release\ds4bridge.exe`. On start it prints the one-time HidHide command (elevated prompt)
-that whitelists the bridge and hides the real pad, so games see only the virtual one.
+Run `bridge\build\Release\ds4bridge.exe` (no elevation needed). While it runs, it hides the real pad through
+HidHide's driver, so games see only the virtual one; on exit (Ctrl+C, closing the window, pad disconnect) it unhides it.
+Start the bridge before games and Steam: HidHide only blocks new opens, so an app that already has the real pad open keeps it.
+If the bridge is killed or crashes, the pad stays hidden until the bridge's next clean exit.
 The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad: check gyro in SDL `testcontroller`.
 
 ## Not done
