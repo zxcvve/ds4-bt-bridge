@@ -20,6 +20,7 @@
 #include "ds4_translate.h"
 #include "config.h"
 #include "imu.h"
+#include "stats.h"
 
 #define SONY_VID     0x054C
 #define DS4_V1_PID   0x05C4
@@ -183,15 +184,59 @@ static void update_title(void)
 }
 
 /* Sends a USB output 0x05 to the pad, light bar dimmed to the user's brightness. Called from two threads. */
+static uint64_t now_us(void)
+{
+    static LARGE_INTEGER freq;
+    LARGE_INTEGER t;
+    if (!freq.QuadPart)
+        QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t);
+    return (uint64_t)(t.QuadPart / freq.QuadPart * 1000000 + t.QuadPart % freq.QuadPart * 1000000 / freq.QuadPart);
+}
+
+/* Link statistics, printed once a second while 's' has them on. Output figures are guarded by out_lock. */
+static struct link_stats lstats;
+static volatile LONG show_stats;
+static unsigned out_writes;
+static uint64_t out_sum_us, out_max_us;
+
 static void send_to_pad(unsigned char *usb)
 {
     unsigned char bt[DS4_BT_REPORT_SIZE];
     EnterCriticalSection(&out_lock);
     ds4_usb_out_dim_led(usb, led, brightness);
     size_t n = ds4_usb_out_to_bt(usb, DS4_USB_OUTPUT_SIZE, bt, sizeof bt);
-    if (n && hid_write(pad, bt, n) < 0)
-        fwprintf(stderr, L"write to pad failed: %ls\n", hid_error(pad));
+    if (n) {
+        uint64_t t0 = now_us();
+        int r = hid_write(pad, bt, n);
+        uint64_t dt = now_us() - t0;
+        out_writes++;
+        out_sum_us += dt;
+        if (dt > out_max_us)
+            out_max_us = dt;
+        if (r < 0)
+            fwprintf(stderr, L"write to pad failed: %ls\n", hid_error(pad));
+    }
     LeaveCriticalSection(&out_lock);
+}
+
+/* Starts a new statistics window; prints the finished one if stats are on. */
+static void print_stats(DWORD elapsed_ms)
+{
+    struct link_window w;
+    stats_take(&lstats, &w);
+    EnterCriticalSection(&out_lock);
+    unsigned writes = out_writes;
+    uint64_t sum = out_sum_us, max = out_max_us;
+    out_writes = 0;
+    out_sum_us = out_max_us = 0;
+    LeaveCriticalSection(&out_lock);
+    if (!show_stats)
+        return;
+    printf("input %.0f Hz, max gap %.1f ms, delivery delay avg %.2f / max %.2f ms, %u bad"
+           " | output %u writes, avg %.2f / max %.2f ms\n",
+           w.reports * 1000.0 / elapsed_ms, w.max_gap_ms, w.delay_avg_ms, w.delay_max_ms, w.bad,
+           writes, writes ? sum / 1000.0 / writes : 0.0, max / 1000.0);
 }
 
 /* Re-sends only the light bar (no rumble flag, so the motors keep their state). */
@@ -233,6 +278,8 @@ static DWORD WINAPI keyboard_thread(LPVOID unused)
             set_brightness(brightness + 10);
         else if (key == '-' || key == '_')
             set_brightness(brightness - 10);
+        else if (key == 's' || key == 'S')
+            printf("Stats %s.\n", InterlockedXor(&show_stats, 1) ? "off" : "on");
     }
 }
 
@@ -310,19 +357,25 @@ int main(int argc, char **argv)
     set_brightness(start_brightness);
     CreateThread(NULL, 0, output_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, keyboard_thread, NULL, 0, NULL);
-    printf("Bridging. +/- changes light bar brightness; battery is in the window title. Ctrl+C to stop.\n");
+    printf("Bridging. +/- changes light bar brightness, s toggles link stats; battery is in the window title.\n"
+           "Ctrl+C to stop.\n");
 
     /* ponytail: exits when the pad disconnects; wrap in a reconnect loop if that gets annoying. */
     unsigned char in[128], usb[DS4_USB_INPUT_SIZE], last_id = 0;
     DS4_REPORT_EX report;
-    DWORD last_input = GetTickCount(), last_poke = 0;
+    DWORD last_input = GetTickCount(), last_poke = 0, last_stats = GetTickCount();
     unsigned good_crcs = 0;
     BOOL stalled = FALSE;
     for (;;) {
         int n = hid_read_timeout(pad, in, sizeof in, 100);
+        uint64_t arrival_us = now_us();
         if (n < 0)
             return fwprintf(stderr, L"pad read failed (disconnected?): %ls\n", hid_error(pad)), 1;
         DWORD now = GetTickCount();
+        if (now - last_stats >= 1000) {
+            print_stats(now - last_stats);
+            last_stats = now;
+        }
         if (n == 0) {
             /* In 0x11 mode the pad streams nonstop, so silence means the link stalled; Windows may not deliver
              * input again until something is written to the pad. SDL pokes after 500 ms the same way. */
@@ -343,12 +396,16 @@ int main(int argc, char **argv)
         stalled = FALSE;
         last_input = now;
         last_id = in[0];
-        if (!ds4_bt_in_valid(in, (size_t)n, &good_crcs))
+        if (!ds4_bt_in_valid(in, (size_t)n, &good_crcs)) {
+            stats_bad(&lstats);
             continue;
+        }
         if (ds4_bt_in_to_usb(in, (size_t)n, usb, sizeof usb) != DS4_USB_INPUT_SIZE || usb[0] != 0x01)
             continue;
-        if (in[0] == 0x11)
+        if (in[0] == 0x11) {
+            stats_input(&lstats, arrival_us, (uint16_t)(usb[10] | usb[11] << 8));    /* pad timestamp */
             ds4_imu_remap(usb, &pad_cal, &vigem_cal);
+        }
         memcpy(report.ReportBuffer, usb + 1, sizeof report.ReportBuffer);
         vigem_target_ds4_update_ex(vigem, vpad, report);
 

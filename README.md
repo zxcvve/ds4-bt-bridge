@@ -25,6 +25,7 @@ That patch is undocumented, applies to every Bluetooth HID device, and can break
 - `src/ds4_translate.c`: tested: `gcc -I src src/ds4_translate.c test/test_translate.c -o t && ./t`
 - `bridge/config.c`: tested: `gcc -I bridge bridge/config.c test/test_config.c -o tc && ./tc`
 - `bridge/imu.c`: tested: `gcc -I bridge bridge/imu.c test/test_imu.c -lm -o ti && ./ti`
+- `bridge/stats.c`: tested: `gcc -I bridge bridge/stats.c test/test_stats.c -lm -o ts && ./ts`
 - `src/driver.c`, `src/ds4bt.inf`: **not compiled or run yet** (needs the WDK on Windows and a real pad).
 
 ## Build (Windows)
@@ -68,6 +69,9 @@ If the bridge is killed or crashes, the pad stays hidden until the bridge's next
 The window title shows the battery level. `+`/`-` in the bridge window change the light bar brightness in 10% steps
 (0 turns it off to save battery). The starting brightness and the color used until a game sets one are in
 `config.toml` next to `ds4bridge.exe` (template: `bridge/config.toml`); `--brightness N` overrides the file.
+`s` toggles link stats, printed once a second: input report rate, longest gap, delivery delay (how much later than
+the second's fastest report each one arrived, judged by the pad's own timestamps; constant latency isn't visible),
+packets dropped as bad, and how long writes to the pad (rumble, LED) take.
 The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad. Its gyro/accel
 calibration (feature 0x02) is another pad's, fixed in ViGEmBus, so the bridge remaps the real pad's raw IMU values
 onto it with SDL's math. Like SDL, it drops Bluetooth packets without the HID flag or, once CRCs prove reliable,
