@@ -9,6 +9,7 @@
 #include <initguid.h>
 #include <devpkey.h>
 #include <cfgmgr32.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,7 @@
 #include "config.h"
 #include "imu.h"
 #include "stats.h"
+#include "sbc.h"
 
 #define SONY_VID     0x054C
 #define DS4_V1_PID   0x05C4
@@ -200,24 +202,73 @@ static volatile LONG show_stats;
 static unsigned out_writes;
 static uint64_t out_sum_us, out_max_us;
 
+/* Caller holds out_lock. */
+static void write_pad(const unsigned char *bt, size_t n)
+{
+    uint64_t t0 = now_us();
+    int r = hid_write(pad, bt, n);
+    uint64_t dt = now_us() - t0;
+    out_writes++;
+    out_sum_us += dt;
+    if (dt > out_max_us)
+        out_max_us = dt;
+    if (r < 0)
+        fwprintf(stderr, L"write to pad failed: %ls\n", hid_error(pad));
+}
+
 static void send_to_pad(unsigned char *usb)
 {
     unsigned char bt[DS4_BT_REPORT_SIZE];
     EnterCriticalSection(&out_lock);
     ds4_usb_out_dim_led(usb, led, brightness);
     size_t n = ds4_usb_out_to_bt(usb, DS4_USB_OUTPUT_SIZE, bt, sizeof bt, report_interval);
-    if (n) {
-        uint64_t t0 = now_us();
-        int r = hid_write(pad, bt, n);
-        uint64_t dt = now_us() - t0;
-        out_writes++;
-        out_sum_us += dt;
-        if (dt > out_max_us)
-            out_max_us = dt;
-        if (r < 0)
-            fwprintf(stderr, L"write to pad failed: %ls\n", hid_error(pad));
-    }
+    if (n)
+        write_pad(bt, n);
     LeaveCriticalSection(&out_lock);
+}
+
+/* Speaker test tone ('t'): 1 kHz sine streamed as 0x17 audio reports, the first step towards Bluetooth audio. */
+static volatile LONG tone_on;
+
+static DWORD WINAPI tone_thread(LPVOID unused)
+{
+    (void)unused;
+    struct sbc_enc enc = { 0 };
+    short pcm[2 * SBC_FRAME_SAMPLES];
+    unsigned char sbc[DS4_BT_AUDIO_SBC], bt[DS4_BT_AUDIO_SIZE];
+    unsigned short frame = 0;
+    int n = 0;
+
+    for (;;) {
+        while (!tone_on)
+            Sleep(50);
+        /* Volume: headset L/R, mic, speaker (flags 0x10-0x80) at USB[19..22]; USB[23] = 0x85 as in the Habr capture. */
+        unsigned char vol[DS4_USB_OUTPUT_SIZE] = { 0x05, 0xF0, 0x04 };
+        vol[19] = vol[20] = 0x43;
+        vol[22] = 0x40;
+        vol[23] = 0x85;
+        send_to_pad(vol);
+
+        uint64_t start = now_us(), queued_us = 0;
+        while (tone_on) {
+            /* Stay at most 32 ms ahead of real time; Sleep's default 15.6 ms granularity fits in that. */
+            if (queued_us > now_us() - start + 32000) {
+                Sleep(4);
+                continue;
+            }
+            for (int f = 0; f < 4; f++) {
+                for (int i = 0; i < SBC_FRAME_SAMPLES; i++, n = (n + 1) % 32)  /* 32 samples = one 1 kHz period */
+                    pcm[2 * i] = pcm[2 * i + 1] = (short)(8000 * sin(6.283185307179586 * n / 32));
+                sbc_encode(&enc, pcm, sbc + f * SBC_FRAME_SIZE);
+            }
+            ds4_bt_audio_report(frame, sbc, bt);
+            frame += 4;
+            queued_us += 16000;
+            EnterCriticalSection(&out_lock);
+            write_pad(bt, sizeof bt);
+            LeaveCriticalSection(&out_lock);
+        }
+    }
 }
 
 /* Starts a new statistics window; prints the finished one if stats are on. */
@@ -287,6 +338,8 @@ static DWORD WINAPI keyboard_thread(LPVOID unused)
             set_brightness(brightness - 10);
         else if (key == 's' || key == 'S')
             printf("Stats %s.\n", InterlockedXor(&show_stats, 1) ? "off" : "on");
+        else if (key == 't' || key == 'T')
+            printf("Test tone %s.\n", InterlockedXor(&tone_on, 1) ? "off" : "on");
     }
     return 0;
 }
@@ -366,7 +419,9 @@ int main(int argc, char **argv)
     set_brightness(start_brightness);
     CreateThread(NULL, 0, output_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, keyboard_thread, NULL, 0, NULL);
-    printf("Bridging. +/- changes light bar brightness, s toggles link stats; battery is in the window title.\n"
+    CreateThread(NULL, 0, tone_thread, NULL, 0, NULL);
+    printf("Bridging. +/- changes light bar brightness, s toggles link stats, t plays a speaker test tone;"
+           " battery is in the window title.\n"
            "Ctrl+C to stop.\n");
 
     /* ponytail: exits when the pad disconnects; wrap in a reconnect loop if that gets annoying. */

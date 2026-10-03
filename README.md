@@ -30,12 +30,14 @@ The window title shows the battery level. `+`/`-` in the bridge window change th
 `report_rate` there (250, 500 or 1000 Hz, SDL's values) sets the pad's Bluetooth input rate; unset keeps the pad's default.
 `s` toggles link stats, printed once a second: input report rate, longest gap, delivery delay (how much later than
 the second's fastest report each one arrived, judged by the pad's own timestamps; constant latency isn't visible),
-packets dropped as bad, and how long writes to the pad (rumble, LED) take.
+packets dropped as bad, and how long writes to the pad (rumble, LED, audio) take.
+`t` toggles a 1 kHz test tone on the pad's speaker (SBC in output report 0x17, layout from public
+captures, confirmed on hardware).
 The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad. Its gyro/accel
 calibration (feature 0x02) is another pad's, fixed in ViGEmBus, so the bridge remaps the real pad's raw IMU values
 onto it with SDL's math. Like SDL, it drops Bluetooth packets without the HID flag or, once CRCs prove reliable,
 with a bad CRC.
 
 ## Not done
-- Speaker (BT audio reports 0x14-0x19 + SBC; needs a separate virtual audio driver).
+- Speaker: only the `t` test tone; no capture of game/system audio yet.
 - XInput-only games still need ViGEm or Steam Input.

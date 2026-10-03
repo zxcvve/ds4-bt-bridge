@@ -12,6 +12,8 @@
 #define DS4_BT_CALIB_SIZE    41   /* feature 0x05 incl. id and CRC32 */
 #define DS4_USB_INPUT_SIZE   64   /* input 0x01 incl. id */
 #define DS4_USB_OUTPUT_SIZE  32   /* output 0x05 incl. id */
+#define DS4_BT_AUDIO_SIZE   462   /* output 0x17 incl. id and CRC32 */
+#define DS4_BT_AUDIO_SBC    448   /* 4 SBC frames = 16 ms */
 
 unsigned int ds4_crc32(unsigned int crc, const unsigned char *p, size_t n);
 
@@ -22,6 +24,10 @@ size_t ds4_bt_in_to_usb(const unsigned char *in, size_t n, unsigned char *out, s
 /* USB output 0x05 -> BT output 0x11 with CRC32. interval_ms (0, or 1/2/4 = 1000/500/250 Hz, SDL's values) asks the
  * pad for that input report rate. Returns translated length, or 0 if not ours. */
 size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, size_t cap, unsigned char interval_ms);
+
+/* BT output 0x17, audio only (no rumble/LED): 4 SBC frames for the speaker. frame counts SBC frames sent so far
+ * (+4 per report, wraps). Layout from the Habr/SensePost captures: 17 40 A0, frame LE16, 02 (speaker), SBC, CRC32. */
+void ds4_bt_audio_report(unsigned short frame, const unsigned char sbc[DS4_BT_AUDIO_SBC], unsigned char out[DS4_BT_AUDIO_SIZE]);
 
 /* Battery from USB input 0x01 (byte 30), mapped like SDL: percent, or -1 if unknown. *cable = USB cable plugged in. */
 int ds4_battery_percent(const unsigned char *usb_in, int *cable);

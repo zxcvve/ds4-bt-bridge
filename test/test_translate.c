@@ -97,6 +97,16 @@ int main(void)
     assert(!ds4_bt_in_valid(v, 70, &good));                     /* too short */
     assert(ds4_bt_in_valid(short_in, sizeof short_in, &good));  /* basic 0x01 report */
 
+    /* Audio 0x17 */
+    unsigned char sbc[DS4_BT_AUDIO_SBC], a[DS4_BT_AUDIO_SIZE];
+    for (int i = 0; i < DS4_BT_AUDIO_SBC; i++)
+        sbc[i] = (unsigned char)i;
+    ds4_bt_audio_report(0x1234, sbc, a);
+    assert(a[0] == 0x17 && a[1] == 0x40 && a[2] == 0xA0 && a[3] == 0x34 && a[4] == 0x12 && a[5] == 0x02);
+    assert(!memcmp(a + 6, sbc, sizeof sbc) && !a[454] && !a[457]);
+    unsigned int acrc = 0x2F3A4E5Fu;                            /* python zlib.crc32(b"\xa2" + a[:458]) */
+    assert(a[458] == (acrc & 0xFF) && a[461] == (acrc >> 24));
+
     puts("ok");
     return 0;
 }
