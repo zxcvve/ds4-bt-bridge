@@ -26,8 +26,12 @@ That patch is undocumented, applies to every Bluetooth HID device, and can break
 - `src/driver.c`, `src/ds4bt.inf`: **not compiled or run yet** (needs the WDK on Windows and a real pad).
 
 ## Build (Windows)
-VS 2022 + WDK. Create a "Kernel Mode Driver, Empty (KMDF)" project named `ds4bt`, then add `src/*.c`, `src/*.h` and
-`src/ds4bt.inf`.
+Use either VS 2022 ("Desktop development with C++", Spectre-mitigated libs) plus a WDK that matches the installed SDK,
+or the EWDK (run from its `LaunchBuildEnv.cmd` prompt). Then run:
+```
+powershell -ExecutionPolicy Bypass -File build.ps1 [-Configuration Debug]
+```
+It checks every prerequisite, reports what's missing, then builds and test-signs into `x64\<Configuration>\ds4bt\`.
 
 ## Install (test machine; set up a kernel debugger or a restore point first)
 ```
