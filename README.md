@@ -48,6 +48,20 @@ Logs: DebugView with "Capture Kernel" enabled (`ds4bt:` prefix).
 - SDL `testcontroller`: rumble, LED, gyro and touchpad all work.
 - Run Driver Verifier on `ds4bt.sys`, then disconnect/reconnect and sleep/resume: no bugcheck.
 
+## Alternative: user-mode bridge (no test signing, Secure Boot stays on)
+`bridge/ds4bridge.c` does the same translation in user mode: it reads the Bluetooth pad with hidapi and
+feeds a ViGEmBus virtual DS4 v2 (`054C:09CC`, USB layout); rumble and light bar written to the virtual pad
+go back to the real one. Don't install `ds4bt.sys` alongside it: the bridge expects the Bluetooth layout.
+
+Needs [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) and [HidHide](https://github.com/nefarius/HidHide/releases)
+(both signed, both retired upstream). Build (VS developer prompt; CMake fetches hidapi and ViGEmClient):
+```
+cmake -S bridge -B bridge/build && cmake --build bridge/build --config Release
+```
+Run `bridge\build\Release\ds4bridge.exe`. On start it prints the one-time HidHide command (elevated prompt)
+that whitelists the bridge and hides the real pad, so games see only the virtual one.
+The virtual pad's descriptor and feature reports come from ViGEmBus, not from the real pad: check gyro in SDL `testcontroller`.
+
 ## Not done
 - Speaker (BT audio reports 0x14-0x19 + SBC; needs a separate virtual audio driver).
 - XInput-only games still need ViGEm or Steam Input.
