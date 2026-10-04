@@ -30,9 +30,13 @@ powershell -ExecutionPolicy Bypass -File bridge\build.ps1 [-Configuration Debug]
    HidHide only blocks new opens, so an app that already has the real pad open keeps using it.
 3. Play. Games see only the virtual pad.
 
-While it runs, the bridge hides the real pad through HidHide. When it exits cleanly (Ctrl+C, closing the window,
-or the pad disconnecting), it unhides the pad again. If the bridge is killed or crashes, the pad stays hidden
-until the bridge's next clean exit.
+The pad can connect before or after the bridge starts: the bridge waits for it. The virtual pad follows the real
+one, like a USB cable: it is plugged in when the pad connects and unplugged when it disconnects, and the bridge
+then waits for the pad to come back.
+
+While it runs, the bridge hides the real pad through HidHide, including while the pad is disconnected. When it
+exits cleanly (Ctrl+C or closing the window), it unhides the pad again. If the bridge is killed or crashes, the
+pad stays hidden until the bridge's next clean exit.
 
 The window title shows the battery level and the volume.
 
@@ -40,7 +44,7 @@ The window title shows the battery level and the volume.
 
 | Input | What it does |
 |---|---|
-| PS + Triangle (on the pad) | Turns the pad off, like in Steam: the bridge drops the Bluetooth link (the pad powers off on that) and exits |
+| PS + Triangle (on the pad) | Turns the pad off, like in Steam: the bridge drops the Bluetooth link (the pad powers off on that). The bridge keeps running; press PS to reconnect |
 | `+` / `-` | Light bar brightness up/down in 10% steps (0 turns it off to save battery) |
 | `[` / `]` | Volume down/up in steps of 10 (works with any keyboard layout) |
 | `s` | Toggles link stats |

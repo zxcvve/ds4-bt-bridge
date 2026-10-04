@@ -122,48 +122,71 @@ static BOOL WINAPI on_console_ctrl(DWORD type)
     return FALSE;   /* let the default handler end the process */
 }
 
-/* The pad is already open, and HidHide only blocks new opens, so the bridge keeps reading it.
- * ponytail: a killed or crashed bridge leaves the pad hidden until its next clean exit; HidHide master has a
- * process-lifetime IOCTL_ADD_SESSION_BLACKLIST that fixes this, switch to it once a release ships it. */
-static void hide_pad(const char *path)
+/* Opens HidHide and whitelists ourselves (HidHide wants the NT path), so the bridge still finds a pad that is
+ * hidden: left so by a crash, or kept so while it reconnects. Without the whitelist, hiding would lock us out. */
+static BOOL hh_setup(void)
 {
-    WCHAR wpath[512], exe_dos[MAX_PATH], exe[MAX_PATH];
-    ULONG size = sizeof hidden_inst;
-    DEVPROPTYPE type;
+    WCHAR exe_dos[MAX_PATH], exe[MAX_PATH];
     DWORD needed;
 
     hidhide = CreateFileW(L"\\\\.\\HidHide", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                           NULL, OPEN_EXISTING, 0, NULL);
     if (hidhide == INVALID_HANDLE_VALUE) {
         printf("HidHide not installed: games will see both the real and the virtual pad.\n");
-        return;
+        return FALSE;
     }
-
-    MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, ARRAYSIZE(wpath));
-    if (CM_Get_Device_Interface_PropertyW(wpath, &DEVPKEY_Device_InstanceId, &type,
-                                          (PBYTE)hidden_inst, &size, 0) != CR_SUCCESS) {
-        fprintf(stderr, "HidHide: can't get the pad's instance ID; not hiding it.\n");
-        return;
-    }
-
-    /* Whitelist ourselves (HidHide wants the NT path) so a restart still finds a pad left hidden by a crash. */
     GetModuleFileNameW(NULL, exe_dos, ARRAYSIZE(exe_dos));
     HANDLE self = CreateFileW(exe_dos, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
     BOOL ok = self != INVALID_HANDLE_VALUE &&
               GetFinalPathNameByHandleW(self, exe, ARRAYSIZE(exe), VOLUME_NAME_NT) &&
-              hh_edit(HH_GET_WHITELIST, HH_SET_WHITELIST, exe, TRUE);
+              hh_edit(HH_GET_WHITELIST, HH_SET_WHITELIST, exe, TRUE) &&
+              DeviceIoControl(hidhide, HH_GET_ACTIVE, NULL, 0, &was_active, sizeof was_active, &needed, NULL);
     if (self != INVALID_HANDLE_VALUE)
         CloseHandle(self);
-
-    ok = ok && DeviceIoControl(hidhide, HH_GET_ACTIVE, NULL, 0, &was_active, sizeof was_active, &needed, NULL) &&
-         hh_edit(HH_GET_BLACKLIST, HH_SET_BLACKLIST, hidden_inst, TRUE);
     if (!ok) {
+        fwprintf(stderr, L"HidHide: couldn't whitelist the bridge, so not hiding the pad (error %lu)\n", GetLastError());
+        CloseHandle(hidhide);
+        hidhide = INVALID_HANDLE_VALUE;
+        return FALSE;
+    }
+    atexit(unhide_pad);
+    SetConsoleCtrlHandler(on_console_ctrl, TRUE);
+    return TRUE;
+}
+
+/* The pad is already open, and HidHide only blocks new opens, so the bridge keeps reading it. Called on every
+ * connect; the pad stays hidden while it is away, so no other app grabs it when it comes back.
+ * ponytail: a killed or crashed bridge leaves the pad hidden until its next clean exit; HidHide master has a
+ * process-lifetime IOCTL_ADD_SESSION_BLACKLIST that fixes this, switch to it once a release ships it. */
+static void hide_pad(const char *path)
+{
+    static BOOL tried, ready;
+    WCHAR wpath[512], inst[ARRAYSIZE(hidden_inst)];
+    ULONG size = sizeof inst;
+    DEVPROPTYPE type;
+
+    if (!tried) {
+        tried = TRUE;
+        ready = hh_setup();
+    }
+    if (!ready)
+        return;
+
+    MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, ARRAYSIZE(wpath));
+    if (CM_Get_Device_Interface_PropertyW(wpath, &DEVPKEY_Device_InstanceId, &type,
+                                          (PBYTE)inst, &size, 0) != CR_SUCCESS) {
+        fprintf(stderr, "HidHide: can't get the pad's instance ID; not hiding it.\n");
+        return;
+    }
+    if (is_hidden && !_wcsicmp(inst, hidden_inst))
+        return;     /* the same pad back again */
+    unhide_pad();   /* a different pad: release the old one */
+    wcscpy(hidden_inst, inst);
+    if (!hh_edit(HH_GET_BLACKLIST, HH_SET_BLACKLIST, hidden_inst, TRUE)) {
         fwprintf(stderr, L"HidHide: couldn't hide the pad (error %lu)\n", GetLastError());
         return;
     }
     is_hidden = 1;
-    atexit(unhide_pad);
-    SetConsoleCtrlHandler(on_console_ctrl, TRUE);
     if (!hh_set_active(TRUE))
         fwprintf(stderr, L"HidHide: couldn't enable hiding (error %lu)\n", GetLastError());
     wprintf(L"HidHide: real pad hidden while the bridge runs (%ls)\n", hidden_inst);
@@ -208,6 +231,8 @@ static uint64_t out_sum_us, out_max_us;
 /* Caller holds out_lock. */
 static void write_pad(const unsigned char *bt, size_t n)
 {
+    if (!pad)
+        return;     /* between connections */
     uint64_t t0 = now_us();
     int r = hid_write(pad, bt, n);
     uint64_t dt = now_us() - t0;
@@ -342,14 +367,19 @@ static void set_brightness(int percent)
     update_title();
 }
 
+/* One per connection; the timeout lets drop_pad stop it before unplugging the virtual pad. */
+static volatile LONG stop_output;
+
 static DWORD WINAPI output_thread(LPVOID unused)
 {
     (void)unused;
     DS4_OUTPUT_BUFFER out;
     unsigned char usb[DS4_USB_OUTPUT_SIZE];
 
-    for (;;) {
-        VIGEM_ERROR err = vigem_target_ds4_await_output_report(vigem, vpad, &out);
+    while (!stop_output) {
+        VIGEM_ERROR err = vigem_target_ds4_await_output_report_timeout(vigem, vpad, 100, &out);
+        if (err == VIGEM_ERROR_TIMED_OUT)
+            continue;
         if (!VIGEM_SUCCESS(err)) {
             fprintf(stderr, "ViGEm output wait failed: 0x%08X\n", err);
             exit(1);    /* not ExitProcess: atexit has to unhide the pad */
@@ -360,6 +390,7 @@ static DWORD WINAPI output_thread(LPVOID unused)
         usb[1] &= 0x0F;     /* the bridge owns the volumes: a game's zeros would mute the speaker */
         send_to_pad(usb);
     }
+    return 0;
 }
 
 /* ReadConsoleInput, not _getch: _getch puts the console in raw mode while it waits, which turns Ctrl+C into a
@@ -392,7 +423,7 @@ static DWORD WINAPI keyboard_thread(LPVOID unused)
 }
 
 /* PS + Triangle, like Steam: drop the pad's Bluetooth link (what DS4Windows does), and the DS4 powers off.
- * The pad read then fails and the bridge exits as on any disconnect. Returns FALSE (message printed) if it can't. */
+ * The pad read then fails as on any disconnect, and the bridge waits for PS to bring it back. Returns FALSE (message printed) if it can't. */
 #define BTH_DISCONNECT_DEVICE CTL_CODE(FILE_DEVICE_BLUETOOTH, 0x03, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 static BOOL power_off_pad(void)
@@ -446,66 +477,83 @@ static void load_config(struct bridge_config *cfg)
     }
 }
 
-int main(int argc, char **argv)
+static struct ds4_imu_cal pad_cal, vigem_cal;
+static HANDLE out_thread;
+
+/* Waits for the pad, opens it and plugs in a fresh virtual pad for it, like a USB cable would. */
+static void connect_pad(void)
 {
-    struct bridge_config cfg = { 100, { 0x00, 0x00, 0x40 }, 0, 64, "" };  /* SDL's player-1 blue */
-    load_config(&cfg);
-    memcpy(led, cfg.color, sizeof led);
-    report_interval = (unsigned char)cfg.report_interval_ms;      /* sent with the first light bar report */
-    strcpy(audio_device, cfg.audio_device);
-    volume = cfg.volume;
-    int start_brightness = cfg.brightness;
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--brightness") && i + 1 < argc)
-            start_brightness = atoi(argv[++i]);
-        else
-            return fprintf(stderr, "usage: ds4bridge [--brightness 0-100]\n"), 2;
+    char *path;
+    hid_device *dev;
+    printf("Waiting for a Bluetooth DualShock 4 (pair it, or press PS if it's paired).\n");
+    for (;;) {
+        while (!(path = find_pad()))
+            Sleep(1000);
+        if ((dev = hid_open_path(path)))
+            break;
+        fprintf(stderr, "Can't open %s; retrying.\n", path);
+        free(path);
+        Sleep(1000);
     }
 
-    if (hid_init())
-        return fprintf(stderr, "hid_init failed\n"), 1;
-
-    char *path = find_pad();
-    if (!path)
-        return fprintf(stderr, "No Bluetooth DualShock 4 found (pair it first; if HidHide hides it, whitelist this exe).\n"), 1;
-    pad = hid_open_path(path);
-    if (!pad)
-        return fprintf(stderr, "Can't open %s\n", path), 1;
-
-    /* Reading calibration switches the pad from the short 0x01 to the full 0x11 input report. */
-    unsigned char calib[DS4_BT_CALIB_SIZE] = { 0x05 };
-    int calib_n = hid_get_feature_report(pad, calib, sizeof calib);
+    /* Reading calibration switches the pad from the short 0x01 to the full 0x11 input report. Retried like SDL
+     * does: right after the pad connects, the first read can fail. */
+    unsigned char calib[DS4_BT_CALIB_SIZE];
+    int calib_n = -1;
+    for (int tries = 0; tries < 5 && calib_n < 0; tries++) {
+        if (tries)
+            Sleep(100);
+        calib[0] = 0x05;
+        calib_n = hid_get_feature_report(dev, calib, sizeof calib);
+    }
     if (calib_n < 0)
-        fwprintf(stderr, L"calibration read failed (no gyro/touchpad): %ls\n", hid_error(pad));
-    struct ds4_imu_cal pad_cal, vigem_cal;
+        fwprintf(stderr, L"calibration read failed (no gyro/touchpad): %ls\n", hid_error(dev));
     if (!ds4_imu_cal_parse(calib, calib_n < 0 ? 0 : (size_t)calib_n, 1, &pad_cal))
         printf("Pad calibration missing or implausible; gyro/accel use SDL's defaults.\n");
-    ds4_imu_cal_parse(vigem_calib, sizeof vigem_calib, 0, &vigem_cal);
 
-    vigem = vigem_alloc();
-    VIGEM_ERROR err = vigem_connect(vigem);
-    if (!VIGEM_SUCCESS(err))
-        return fprintf(stderr, "ViGEmBus not available (installed?): 0x%08X\n", err), 1;
+    hide_pad(path);
+    free(path);
+
     vpad = vigem_target_ds4_alloc();
     vigem_target_set_vid(vpad, SONY_VID);
     vigem_target_set_pid(vpad, DS4_V2_PID);
-    err = vigem_target_add(vigem, vpad);
-    if (!VIGEM_SUCCESS(err))
-        return fprintf(stderr, "Can't add virtual DS4: 0x%08X\n", err), 1;
-    hide_pad(path);
+    VIGEM_ERROR err = vigem_target_add(vigem, vpad);
+    if (!VIGEM_SUCCESS(err)) {
+        fprintf(stderr, "Can't add virtual DS4: 0x%08X\n", err);
+        exit(1);    /* not ExitProcess: atexit has to unhide the pad */
+    }
 
-    InitializeCriticalSection(&out_lock);
-    set_brightness(start_brightness);
-    CreateThread(NULL, 0, output_thread, NULL, 0, NULL);
-    CreateThread(NULL, 0, keyboard_thread, NULL, 0, NULL);
-    CreateThread(NULL, 0, tone_thread, NULL, 0, NULL);
-    if (audio_device[0])
-        CreateThread(NULL, 0, capture_thread, NULL, 0, NULL);
-    printf("Bridging. +/- changes light bar brightness, [ and ] the volume, s toggles link stats, t plays a test tone;"
-           " battery is in the window title.\nPS + Triangle on the pad turns it off.\n"
-           "Ctrl+C to stop.\n");
+    EnterCriticalSection(&out_lock);
+    pad = dev;
+    LeaveCriticalSection(&out_lock);
+    stop_output = 0;
+    out_thread = CreateThread(NULL, 0, output_thread, NULL, 0, NULL);
+    battery = -1;
+    set_brightness(brightness);     /* also sends the report rate */
+    set_speaker_volume();
+    printf("Pad connected.\n");
+}
 
-    /* ponytail: exits when the pad disconnects; wrap in a reconnect loop if that gets annoying. */
+/* Unplugs the virtual pad and closes the real one; the bridge then waits for the pad again. */
+static void drop_pad(void)
+{
+    InterlockedExchange(&stop_output, 1);
+    WaitForSingleObject(out_thread, INFINITE);
+    CloseHandle(out_thread);
+    vigem_target_remove(vigem, vpad);
+    vigem_target_free(vpad);
+    vpad = NULL;
+    EnterCriticalSection(&out_lock);
+    hid_close(pad);
+    pad = NULL;
+    LeaveCriticalSection(&out_lock);
+    battery = -1;
+    update_title();
+}
+
+/* Mirrors the pad onto the virtual one until the pad goes away. */
+static void run_pad(void)
+{
     unsigned char in[128], usb[DS4_USB_INPUT_SIZE], last_id = 0;
     DS4_REPORT_EX report;
     DWORD last_input = GetTickCount(), last_poke = 0, last_stats = GetTickCount();
@@ -514,10 +562,14 @@ int main(int argc, char **argv)
     for (;;) {
         int n = hid_read_timeout(pad, in, sizeof in, 100);
         uint64_t arrival_us = now_us();
-        if (n < 0 && powered_off)
-            return printf("Pad turned off.\n"), 0;
-        if (n < 0)
-            return fwprintf(stderr, L"pad read failed (disconnected?): %ls\n", hid_error(pad)), 1;
+        if (n < 0 && powered_off) {
+            printf("Pad turned off; press PS to bring it back.\n");
+            return;
+        }
+        if (n < 0) {
+            fwprintf(stderr, L"Pad disconnected: %ls\n", hid_error(pad));
+            return;
+        }
         DWORD now = GetTickCount();
         if (now - last_stats >= 1000) {
             print_stats(now - last_stats);
@@ -570,5 +622,46 @@ int main(int argc, char **argv)
             headphones = ds4_headphones(usb);
             printf("Headphones %s: audio to the %s.\n", headphones ? "plugged in" : "unplugged", headphones ? "jack" : "speaker");
         }
+    }
+}
+
+int main(int argc, char **argv)
+{
+    struct bridge_config cfg = { 100, { 0x00, 0x00, 0x40 }, 0, 64, "" };  /* SDL's player-1 blue */
+    load_config(&cfg);
+    memcpy(led, cfg.color, sizeof led);
+    report_interval = (unsigned char)cfg.report_interval_ms;      /* sent with the first light bar report */
+    strcpy(audio_device, cfg.audio_device);
+    volume = cfg.volume;
+    brightness = cfg.brightness;    /* clamped by the first set_brightness */
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--brightness") && i + 1 < argc)
+            brightness = atoi(argv[++i]);
+        else
+            return fprintf(stderr, "usage: ds4bridge [--brightness 0-100]\n"), 2;
+    }
+
+    if (hid_init())
+        return fprintf(stderr, "hid_init failed\n"), 1;
+    ds4_imu_cal_parse(vigem_calib, sizeof vigem_calib, 0, &vigem_cal);
+    vigem = vigem_alloc();
+    VIGEM_ERROR err = vigem_connect(vigem);
+    if (!VIGEM_SUCCESS(err))
+        return fprintf(stderr, "ViGEmBus not available (installed?): 0x%08X\n", err), 1;
+
+    InitializeCriticalSection(&out_lock);
+    update_title();
+    CreateThread(NULL, 0, keyboard_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, tone_thread, NULL, 0, NULL);
+    if (audio_device[0])
+        CreateThread(NULL, 0, capture_thread, NULL, 0, NULL);
+    printf("+/- changes light bar brightness, [ and ] the volume, s toggles link stats, t plays a test tone;"
+           " battery is in the window title.\nPS + Triangle on the pad turns it off.\n"
+           "Ctrl+C to stop.\n");
+
+    for (;;) {
+        connect_pad();
+        run_pad();
+        drop_pad();
     }
 }
