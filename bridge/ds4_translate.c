@@ -65,11 +65,11 @@ size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, 
 }
 
 void ds4_bt_audio_report(unsigned short frame, unsigned char target, const unsigned char sbc[DS4_BT_AUDIO_SBC],
-                         unsigned char out[DS4_BT_AUDIO_SIZE])
+                         unsigned char interval_ms, unsigned char out[DS4_BT_AUDIO_SIZE])
 {
     memset(out, 0, DS4_BT_AUDIO_SIZE);
     out[0] = 0x17;
-    out[1] = 0x40;      /* CRC present, no HID (controller state) data */
+    out[1] = 0x40 | (interval_ms & 0x0F);   /* CRC present, no HID (controller state) data, input report interval */
     out[2] = 0xA0;
     out[3] = (unsigned char)frame;
     out[4] = (unsigned char)(frame >> 8);

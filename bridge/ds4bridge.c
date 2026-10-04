@@ -291,7 +291,7 @@ static void send_audio(const short *pcm)
     EnterCriticalSection(&out_lock);
     for (int f = 0; f < 4; f++)
         sbc_encode(&enc, pcm + f * 2 * SBC_FRAME_SAMPLES, sbc + f * SBC_FRAME_SIZE);
-    ds4_bt_audio_report(frame, headphones ? DS4_AUDIO_HEADSET : DS4_AUDIO_SPEAKER, sbc, bt);
+    ds4_bt_audio_report(frame, headphones ? DS4_AUDIO_HEADSET : DS4_AUDIO_SPEAKER, sbc, report_interval, bt);
     frame += 4;
     write_pad(bt, sizeof bt);
     LeaveCriticalSection(&out_lock);

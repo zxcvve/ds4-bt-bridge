@@ -27,11 +27,12 @@ size_t ds4_bt_in_to_usb(const unsigned char *in, size_t n, unsigned char *out, s
 size_t ds4_usb_out_to_bt(const unsigned char *in, size_t n, unsigned char *out, size_t cap, unsigned char interval_ms);
 
 /* BT output 0x17, audio only (no rumble/LED): 4 SBC frames. frame counts SBC frames sent so far (+4 per report,
- * wraps). Layout from the Habr/SensePost captures: 17 40 A0, frame LE16, target, SBC, CRC32. */
+ * wraps). Layout from the Habr/SensePost captures: 17 40 A0, frame LE16, target, SBC, CRC32. Byte 1's low nibble
+ * sets the input report interval like in 0x11, so it must repeat interval_ms or the pad falls back to max rate. */
 #define DS4_AUDIO_SPEAKER 0x02
 #define DS4_AUDIO_HEADSET 0x24
 void ds4_bt_audio_report(unsigned short frame, unsigned char target, const unsigned char sbc[DS4_BT_AUDIO_SBC],
-                         unsigned char out[DS4_BT_AUDIO_SIZE]);
+                         unsigned char interval_ms, unsigned char out[DS4_BT_AUDIO_SIZE]);
 
 /* Battery from USB input 0x01 (byte 30), mapped like SDL: percent, or -1 if unknown. *cable = USB cable plugged in. */
 int ds4_battery_percent(const unsigned char *usb_in, int *cable);
